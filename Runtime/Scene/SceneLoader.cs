@@ -1,5 +1,5 @@
+using System;
 using System.Collections;
-using UyiCore.Observer;
 using UyiCore.Patterns;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -11,6 +11,9 @@ namespace UyiCore.Scenes
     /// Bootstrap scene luôn nằm dưới (chứa các manager singleton);
     /// Menu/Game/... load Additive chồng lên, scene cũ unload.
     /// Sống trong Bootstrap scene — không cần DontDestroyOnLoad.
+    ///
+    /// Subscribe progress qua static event <see cref="OnLoadProgress"/>:
+    ///   SceneLoader.OnLoadProgress += d =&gt; bar.fillAmount = d.progress;
     /// </summary>
     public class SceneLoader : SingletonBehaviour<SceneLoader>
     {
@@ -25,6 +28,15 @@ namespace UyiCore.Scenes
         private bool _isLoading;
 
         public bool IsLoading => _isLoading;
+
+        /// <summary>Fire khi bắt đầu load (sau fade-out, trước unload scene cũ).</summary>
+        public static event Action<SceneLoadStartedData> OnLoadStarted;
+
+        /// <summary>Fire mỗi frame trong khi load (progress 0..1). UI loading bar subscribe cái này.</summary>
+        public static event Action<SceneLoadProgressData> OnLoadProgress;
+
+        /// <summary>Fire khi scene target đã activate xong và fade-in kết thúc.</summary>
+        public static event Action<SceneLoadCompletedData> OnLoadCompleted;
 
         protected override void OnAwake()
         {
@@ -71,7 +83,7 @@ namespace UyiCore.Scenes
             if (_transition != null) _transition.SetColor(opts.FadeColor);
 
             string fromScene = SceneManager.GetActiveScene().name;
-            Observer<GameEvent>.Emit(GameEvent.SceneLoadStarted, new SceneLoadStartedData(fromScene, targetScene));
+            SafeInvoke(OnLoadStarted, new SceneLoadStartedData(fromScene, targetScene));
 
             // 1. Fade-out (che màn hình)
             if (_transition != null) yield return _transition.FadeOut(opts.FadeDuration);
@@ -91,7 +103,7 @@ namespace UyiCore.Scenes
                 yield return SceneManager.LoadSceneAsync(opts.LoadingSceneName, LoadSceneMode.Additive);
                 var ls = SceneManager.GetSceneByName(opts.LoadingSceneName);
                 if (ls.IsValid()) SceneManager.SetActiveScene(ls);
-                yield return null; // chờ 1 frame để Loading UI subscribe Observer
+                yield return null; // chờ 1 frame để Loading UI subscribe event
                 if (_transition != null) yield return _transition.FadeIn(opts.FadeDuration);
             }
 
@@ -105,10 +117,10 @@ namespace UyiCore.Scenes
             while (op.progress < 0.9f)
             {
                 float p = op.progress / 0.9f;
-                Observer<GameEvent>.Emit(GameEvent.SceneLoadProgress, new SceneLoadProgressData(targetScene, p));
+                SafeInvoke(OnLoadProgress, new SceneLoadProgressData(targetScene, p));
                 yield return null;
             }
-            Observer<GameEvent>.Emit(GameEvent.SceneLoadProgress, new SceneLoadProgressData(targetScene, 1f));
+            SafeInvoke(OnLoadProgress, new SceneLoadProgressData(targetScene, 1f));
 
             // 5. Đợi đủ MinLoadingTime
             float elapsed = Time.unscaledTime - startTime;
@@ -136,8 +148,15 @@ namespace UyiCore.Scenes
             // 9. Fade-in (lộ scene target)
             if (_transition != null) yield return _transition.FadeIn(opts.FadeDuration);
 
-            Observer<GameEvent>.Emit(GameEvent.SceneLoadCompleted, new SceneLoadCompletedData(targetScene));
+            SafeInvoke(OnLoadCompleted, new SceneLoadCompletedData(targetScene));
             _isLoading = false;
+        }
+
+        static void SafeInvoke<T>(Action<T> handler, T data)
+        {
+            if (handler == null) return;
+            try { handler.Invoke(data); }
+            catch (Exception e) { Debug.LogException(e); }
         }
     }
 }
