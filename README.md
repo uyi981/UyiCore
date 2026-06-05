@@ -12,13 +12,13 @@ Cài qua Unity Package Manager — không copy file vào Assets.
 Mở **Window → Package Manager → + → Add package from git URL** rồi paste:
 
 ```
-https://github.com/<uyi981>/UyiCore.git
+https://github.com/uyi981/UyiCore.git
 ```
 
 Hoặc lock vào version cụ thể:
 
 ```
-https://github.com/<uyi981>/UyiCore.git#v1.0.0
+https://github.com/uyi981/UyiCore.git#v1.0.0
 ```
 
 ### Option 2 — manifest.json
@@ -28,7 +28,7 @@ Edit `Packages/manifest.json` trong project:
 ```json
 {
   "dependencies": {
-    "com.uyi.core": "https://github.com/<uyi981>/UyiCore.git#v1.0.0"
+    "com.uyi.core": "https://github.com/uyi981/UyiCore.git#v1.0.0"
   }
 }
 ```
