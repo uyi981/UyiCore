@@ -34,6 +34,7 @@ namespace UyiCore.BT
         protected readonly System.Collections.Generic.List<INode<TOwner>> Children = new System.Collections.Generic.List<INode<TOwner>>();
 
         public void AddChild(INode<TOwner> child) => Children.Add(child);
+        public int ChildCount => Children.Count;
 
         public abstract NodeStatus Tick(TOwner owner, float deltaTime);
 

@@ -40,7 +40,9 @@ namespace UyiCore.Pooling
         /// <summary>Acquire an item. Active + enabled, but caller sets transform/state.</summary>
         public TItem Get()
         {
-            if (_active.Count >= _entry.MaxConcurrent)
+            // MaxConcurrent <= 0 ⇒ coi như không giới hạn (bỏ eviction).
+            // Guard _active.First != null để không NRE khi list rỗng.
+            if (_entry.MaxConcurrent > 0 && _active.Count >= _entry.MaxConcurrent && _active.First != null)
             {
                 var oldest = _active.First.Value;
                 _active.RemoveFirst();

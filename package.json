@@ -2,10 +2,11 @@
   "name": "com.uyi.core",
   "version": "1.0.0",
   "displayName": "UyiCore",
-  "description": "Reusable Unity toolkit: Observer event bus, generic pooling, FSM, behavior tree, save system, scene loader (Bootstrap + Additive), timer service, floating text, audio manager, popup manager. Focus on indie action/shooter/roguelite.",
+  "description": "Reusable Unity toolkit: Observer event bus, generic pooling, FSM, behavior tree, save system, scene loader (Bootstrap + Additive), timer service, audio manager, popup manager, plus visual editors for BT and UI layout. Focus on indie action/shooter/roguelite.",
   "unity": "2021.3",
   "dependencies": {
-    "com.unity.textmeshpro": "3.0.6"
+    "com.unity.textmeshpro": "3.0.6",
+    "com.unity.ugui": "1.0.0"
   },
   "keywords": [
     "toolkit",

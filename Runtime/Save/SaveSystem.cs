@@ -175,7 +175,7 @@ namespace UyiCore.Save
                 EnsureDir();
                 string json = JsonUtility.ToJson(env);
                 if (_opts.Obfuscate) json = Obfuscate(json, _opts.ObfuscationKey);
-                File.WriteAllText(path, json, Encoding.UTF8);
+                WriteAtomic(path, json);
                 return true;
             }
             catch (Exception e)
@@ -239,6 +239,23 @@ namespace UyiCore.Save
         {
             var dir = GetRootPath();
             if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+        }
+
+        // Ghi atomic: ra file .tmp rồi thay thế bản chính. Crash/mất điện giữa chừng
+        // không làm hỏng save cũ (File.Replace là thao tác nguyên tử trên cùng ổ đĩa).
+        static void WriteAtomic(string path, string content)
+        {
+            string tmp = path + ".tmp";
+            File.WriteAllText(tmp, content, Encoding.UTF8);
+            if (File.Exists(path))
+            {
+                try { File.Replace(tmp, path, null); }
+                catch { File.Delete(path); File.Move(tmp, path); }
+            }
+            else
+            {
+                File.Move(tmp, path);
+            }
         }
 
         static string GetRootPath()

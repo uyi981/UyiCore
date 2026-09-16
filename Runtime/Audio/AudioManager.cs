@@ -25,6 +25,7 @@ namespace UyiCore.Audio
         private AudioSource _bgmB;
         private bool _bgmUsingA = true;
         private string _currentBgmId;
+        private AudioSource _activeBgm;   // source đang phát (fix: đừng suy từ _bgmUsingA)
         private Coroutine _crossfadeRoutine;
 
         protected override void OnAwake()
@@ -129,6 +130,7 @@ namespace UyiCore.Audio
             next.pitch = entry.pitchMin >= entry.pitchMax ? entry.pitchMin : Random.Range(entry.pitchMin, entry.pitchMax);
             next.volume = 0f;
             next.Play();
+            _activeBgm = next;
 
             float targetVol = entry.volume * _bgmVolume * _masterVolume;
             if (_crossfadeRoutine != null) StopCoroutine(_crossfadeRoutine);
@@ -138,6 +140,7 @@ namespace UyiCore.Audio
         public void StopBgm(float fade = -1f)
         {
             _currentBgmId = null;
+            _activeBgm = null;
             float t = fade < 0f ? _bgmCrossfade : fade;
             if (_crossfadeRoutine != null) StopCoroutine(_crossfadeRoutine);
             _crossfadeRoutine = StartCoroutine(FadeOutRoutine(_bgmA, t));
@@ -192,12 +195,11 @@ namespace UyiCore.Audio
 
         void RefreshBgmVolume()
         {
-            if (string.IsNullOrEmpty(_currentBgmId)) return;
+            if (string.IsNullOrEmpty(_currentBgmId) || _database == null || _activeBgm == null) return;
             var entry = _database.GetBgm(_currentBgmId);
             if (entry == null) return;
             float target = entry.volume * _bgmVolume * _masterVolume;
-            var active = _bgmUsingA ? _bgmB : _bgmA;
-            if (active.isPlaying) active.volume = target;
+            if (_activeBgm.isPlaying) _activeBgm.volume = target;
         }
     }
 }

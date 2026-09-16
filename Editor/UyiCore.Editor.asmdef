@@ -2,7 +2,8 @@
     "name": "UyiCore.Editor",
     "rootNamespace": "UyiCore.EditorTools",
     "references": [
-        "UyiCore.Runtime"
+        "UyiCore.Runtime",
+        "Unity.TextMeshPro"
     ],
     "includePlatforms": [
         "Editor"

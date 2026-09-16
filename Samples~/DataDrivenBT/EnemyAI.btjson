@@ -1,0 +1,22 @@
+{
+  "name": "GruntAI",
+  "root": "root",
+  "nodes": [
+    { "id": "root", "type": "Selector", "children": ["flee", "attack", "chase", "patrol"] },
+
+    { "id": "flee", "type": "Sequence", "children": ["flee_cond", "flee_do"] },
+    { "id": "flee_cond", "type": "Condition", "ref": "HpBelow", "params": [ { "key": "threshold", "value": "0.2" } ] },
+    { "id": "flee_do", "type": "Do", "ref": "Flee" },
+
+    { "id": "attack", "type": "Sequence", "children": ["atk_cond", "atk_cd"] },
+    { "id": "atk_cond", "type": "Condition", "ref": "InRange", "params": [ { "key": "distance", "value": "5" } ] },
+    { "id": "atk_cd", "type": "Cooldown", "params": [ { "key": "duration", "value": "0.8" } ], "children": ["atk_do"] },
+    { "id": "atk_do", "type": "Do", "ref": "Attack" },
+
+    { "id": "chase", "type": "Sequence", "children": ["chase_cond", "chase_act"] },
+    { "id": "chase_cond", "type": "Condition", "ref": "CanSeePlayer" },
+    { "id": "chase_act", "type": "Action", "ref": "Chase" },
+
+    { "id": "patrol", "type": "Do", "ref": "Patrol" }
+  ]
+}

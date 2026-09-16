@@ -38,6 +38,15 @@ namespace UyiCore.Scenes
         /// <summary>Fire khi scene target đã activate xong và fade-in kết thúc.</summary>
         public static event Action<SceneLoadCompletedData> OnLoadCompleted;
 
+        // Reset static event khi vào Play (fix stale subscriber khi tắt Reload Domain).
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        static void ResetStaticEvents()
+        {
+            OnLoadStarted = null;
+            OnLoadProgress = null;
+            OnLoadCompleted = null;
+        }
+
         protected override void OnAwake()
         {
             base.OnAwake();

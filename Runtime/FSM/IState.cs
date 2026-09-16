@@ -1,8 +1,8 @@
-namespace UyiCore.GameFlow
+namespace UyiCore.FSM
 {
     /// <summary>
     /// State trong <see cref="StateMachine{TOwner}"/>. TOwner = kiểu của object sở hữu FSM
-    /// (vd GameStateMachine, EnemyController, CharacterRoot) — state truy cập owner type-safe.
+    /// (vd GameStateMachine, EnemyController) — state truy cập owner type-safe.
     /// </summary>
     public interface IState<TOwner>
     {

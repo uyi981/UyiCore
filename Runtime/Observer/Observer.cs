@@ -10,10 +10,30 @@ namespace UyiCore.Observer
     /// </summary>
     public interface IEventData { }
 
+    /// <summary>
+    /// Gom hàm clear của mọi <see cref="Observer{TEvent}"/> đã dùng để reset khi vào Play.
+    /// Fix stale listener khi tắt "Enter Play Mode Options → Reload Domain".
+    /// Non-generic vì RuntimeInitializeOnLoadMethod không hook được trên type generic mở.
+    /// </summary>
+    internal static class ObserverReset
+    {
+        private static readonly List<Action> _clears = new List<Action>();
+        internal static void Register(Action clear) { if (clear != null) _clears.Add(clear); }
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        static void ClearAllOnEnterPlay()
+        {
+            for (int i = 0; i < _clears.Count; i++) _clears[i]?.Invoke();
+        }
+    }
+
     public static class Observer<TEvent> where TEvent : Enum
     {
         // Single dictionary for all events
         private static readonly Dictionary<TEvent, Delegate> _eventTable = new();
+
+        // Đăng ký clear cho lần vào Play sau (chạy 1 lần khi type được dùng lần đầu).
+        static Observer() { ObserverReset.Register(ClearAll); }
 
         #region Add Listeners
 

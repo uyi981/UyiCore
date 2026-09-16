@@ -1,0 +1,17 @@
+{
+  "name": "MainMenu",
+  "canvasW": 1080,
+  "canvasH": 1920,
+  "root": "bg",
+  "nodes": [
+    { "id": "bg", "name": "Background", "x": 0, "y": 0, "w": 1080, "h": 1920, "color": "#1B1E28",
+      "children": ["logo", "playBtn", "settingsBtn", "footer"] },
+
+    { "id": "logo", "name": "Logo", "x": 340, "y": 220, "w": 400, "h": 220, "color": "#FFFFFF" },
+
+    { "id": "playBtn", "name": "PlayButton", "x": 390, "y": 980, "w": 300, "h": 130, "color": "#2DD4BF" },
+    { "id": "settingsBtn", "name": "SettingsButton", "x": 390, "y": 1160, "w": 300, "h": 130, "color": "#3A4152" },
+
+    { "id": "footer", "name": "Footer", "x": 0, "y": 1820, "w": 1080, "h": 100, "color": "#12151C" }
+  ]
+}

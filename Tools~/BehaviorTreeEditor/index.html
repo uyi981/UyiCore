@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UyiCore · Behavior Tree Editor</title>
+<style>
+  :root{
+    --bg:#0f1219; --panel:#161b24; --panel2:#1c2330; --line:#2a3341;
+    --ink:#e7ecf3; --muted:#8b95a6; --faint:#5d6675;
+    --accent:#2dd4bf; --accent2:#63e8d8;
+    --composite:#4c86e0; --decorator:#a97be0; --leaf:#6b7688;
+    --action:#2fbf9b; --condition:#e0b341; --do:#3fb6d8;
+    --root:#f2c14e; --danger:#e0654f; --ok:#42c07a;
+    --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:13px;overflow:hidden;
+    display:grid;grid-template-rows:auto 1fr;grid-template-columns:340px 1fr 300px;
+    grid-template-areas:"top top top" "explain canvas side"}
+  body.hide-explain{grid-template-columns:0 1fr 300px}
+  body.hide-explain #explain{display:none}
+  button{font-family:inherit;font-size:12px;color:var(--ink);background:var(--panel2);border:1px solid var(--line);
+    border-radius:7px;padding:6px 10px;cursor:pointer;transition:background .12s,border-color .12s}
+  button:hover{background:#232c3b;border-color:#3a465a}
+  button:active{transform:translateY(1px)}
+  button.primary{background:var(--accent);color:#08201d;border-color:transparent;font-weight:600}
+  button.primary:hover{background:var(--accent2)}
+  input,select,textarea{font-family:inherit;font-size:12px;color:var(--ink);background:#0c0f15;
+    border:1px solid var(--line);border-radius:6px;padding:5px 7px;width:100%}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+  label{display:block;font-size:11px;color:var(--muted);margin:9px 0 3px;letter-spacing:.02em}
+
+  /* ---- Topbar ---- */
+  #top{grid-area:top;display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--panel);
+    border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .brand{font-family:var(--mono);font-weight:700;font-size:14px;letter-spacing:-.01em;white-space:nowrap}
+  .brand b{color:var(--accent)}
+  .tname{max-width:190px}
+  .sep{width:1px;height:22px;background:var(--line);margin:0 2px}
+  .spring{flex:1}
+  .palette{display:flex;gap:5px;flex-wrap:wrap}
+  .pgroup{display:flex;gap:3px;align-items:center;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:3px}
+  .pgroup .lbl{font-size:9px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em;padding:0 4px}
+  .padd{padding:4px 7px;font-size:11px;font-family:var(--mono)}
+
+  /* ---- Canvas ---- */
+  #viewport{grid-area:canvas;position:relative;overflow:hidden;
+    background:
+      radial-gradient(circle at 1px 1px, #222b38 1px, transparent 0) 0 0/22px 22px,
+      var(--bg);
+    cursor:grab}
+  #viewport.panning{cursor:grabbing}
+  #world{position:absolute;top:0;left:0;transform-origin:0 0}
+  #wires{position:absolute;top:0;left:0;overflow:visible;pointer-events:none;transform-origin:0 0}
+  #wires path{fill:none;stroke:#3d4a5e;stroke-width:2.5}
+  #wires path.temp{stroke:var(--accent);stroke-dasharray:5 4}
+  #wires path.hit{stroke:transparent;stroke-width:14;pointer-events:stroke;cursor:pointer}
+  #wires path.hit:hover + path{stroke:var(--danger)}
+
+  .node{position:absolute;width:172px;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    box-shadow:0 6px 20px -8px rgba(0,0,0,.6);user-select:none;overflow:visible}
+  .node.sel{border-color:var(--accent);box-shadow:0 0 0 2px rgba(45,212,191,.35),0 8px 24px -8px rgba(0,0,0,.7)}
+  .node.isroot{border-color:var(--root)}
+  .node .head{padding:7px 10px;font-family:var(--mono);font-weight:700;font-size:12px;border-radius:9px 9px 0 0;
+    display:flex;align-items:center;justify-content:space-between;cursor:grab;color:#0c0f15}
+  .node.isroot .head::after{content:"ROOT";font-size:8px;background:var(--root);color:#2a2100;padding:1px 5px;
+    border-radius:4px;letter-spacing:.05em}
+  .node .body{padding:8px 10px;font-size:11px;color:var(--muted);min-height:14px}
+  .node .body .ref{font-family:var(--mono);color:var(--ink);font-weight:600}
+  .node .body .pm{color:var(--faint);font-family:var(--mono);font-size:10px}
+  .node .ord{position:absolute;top:-9px;left:-9px;width:18px;height:18px;border-radius:50%;background:#0c0f15;
+    border:1px solid var(--line);color:var(--muted);font-size:10px;font-family:var(--mono);
+    display:none;align-items:center;justify-content:center}
+  .node .ord.show{display:flex}
+  .port{position:absolute;left:50%;transform:translateX(-50%);width:13px;height:13px;border-radius:50%;
+    background:#0c0f15;border:2px solid #46536a}
+  .port.in{top:-7px}
+  .port.out{bottom:-7px;cursor:crosshair;border-color:var(--accent)}
+  .port.out:hover{background:var(--accent)}
+
+  .cat-composite .head{background:var(--composite)} .cat-decorator .head{background:var(--decorator)}
+  .cat-leaf .head{background:var(--leaf)} .cat-action .head{background:var(--action)}
+  .cat-condition .head{background:var(--condition)} .cat-do .head{background:var(--do)}
+
+  /* ---- Side inspector ---- */
+  #side{grid-area:side;background:var(--panel);border-left:1px solid var(--line);overflow-y:auto;padding:12px}
+  #side h3{margin:0 0 8px;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--faint)}
+  .hint{color:var(--faint);font-size:11px;line-height:1.5}
+  .pm-row{display:grid;grid-template-columns:1fr 1fr auto;gap:5px;margin-bottom:5px}
+  .pm-row button{padding:5px 8px}
+  .chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
+  .chip{font-size:10px;font-family:var(--mono);padding:3px 7px;border-radius:999px;background:var(--panel2);
+    border:1px solid var(--line);cursor:pointer;color:var(--muted)}
+  .chip:hover{border-color:var(--accent);color:var(--ink)}
+  .issues{margin-top:6px;display:flex;flex-direction:column;gap:5px}
+  .issue{font-size:11px;padding:6px 8px;border-radius:6px;line-height:1.4}
+  .issue.err{background:rgba(224,101,79,.13);border:1px solid rgba(224,101,79,.4);color:#f0a596}
+  .issue.warn{background:rgba(224,179,65,.12);border:1px solid rgba(224,179,65,.35);color:#e6c877}
+  .issue.ok{background:rgba(66,192,122,.12);border:1px solid rgba(66,192,122,.35);color:#8fd9b0}
+  .kbd{font-family:var(--mono);font-size:10px;background:var(--panel2);border:1px solid var(--line);
+    border-radius:4px;padding:1px 5px;color:var(--muted)}
+  .row2{display:flex;gap:6px}.row2>*{flex:1}
+
+  /* ---- Modal ---- */
+  #modal{position:fixed;inset:0;background:rgba(6,9,14,.72);display:none;align-items:center;justify-content:center;z-index:50}
+  #modal.show{display:flex}
+  .sheet{background:var(--panel);border:1px solid var(--line);border-radius:12px;width:min(560px,92vw);
+    max-height:82vh;display:flex;flex-direction:column;overflow:hidden}
+  .sheet-h{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+  .sheet-h b{font-family:var(--mono)}
+  .sheet-b{padding:14px 16px;overflow:auto}
+  .sheet-b textarea{min-height:280px;font-family:var(--mono);font-size:11px;line-height:1.5;resize:vertical}
+  .sheet-f{padding:12px 16px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end}
+  #toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--panel2);
+    border:1px solid var(--line);border-radius:8px;padding:8px 14px;font-size:12px;opacity:0;
+    transition:opacity .2s,transform .2s;pointer-events:none;z-index:60}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(-4px)}
+  .dragover{outline:2px dashed var(--accent);outline-offset:-8px}
+
+  /* ---- Explain panel ---- */
+  #explain{grid-area:explain;background:var(--panel);border-right:1px solid var(--line);overflow-y:auto;padding:14px}
+  #explain .eh{display:flex;justify-content:space-between;align-items:center;margin-bottom:11px}
+  #explain h3{margin:0;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--faint)}
+  #explain .cp{font-size:10px;padding:4px 9px}
+  .nx-intro{color:var(--muted);font-size:12px;line-height:1.55;margin-bottom:12px}
+  .nx-intro b{color:var(--ink)}
+  .nx-card{background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--accent);
+    border-radius:9px;padding:9px 12px;margin-bottom:8px}
+  .nx-lvl{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;
+    letter-spacing:.06em;text-transform:uppercase;color:var(--accent2);margin-bottom:5px}
+  .nx-card .body{font-size:13px;line-height:1.55;color:var(--ink)}
+  .nx-card b{color:var(--accent2);font-weight:600}
+  .nx-card i{color:#c9a7ea;font-style:normal;font-size:11px}
+  .nx-list{margin:5px 0 0;padding-left:20px}
+  .nx-list li{margin:3px 0;line-height:1.5}
+  .nx-sel{color:var(--muted);font-size:12px;margin:1px 0 3px}
+  .nx-def{color:var(--faint);text-transform:none;letter-spacing:0}
+
+  /* ---- Node create menu (drag-to-create) ---- */
+  #nodeMenu{position:fixed;z-index:70;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    box-shadow:0 12px 32px -8px rgba(0,0,0,.75);padding:6px;min-width:186px;max-height:74vh;overflow:auto;display:none}
+  #nodeMenu.show{display:block}
+  #nodeMenu .mh{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--faint);padding:7px 8px 3px}
+  #nodeMenu .mi{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer}
+  #nodeMenu .mi:hover{background:var(--panel2)}
+  #nodeMenu .dot{width:9px;height:9px;border-radius:3px;flex:none}
+  #nodeMenu .nm{font-family:var(--mono);font-weight:600;font-size:12px}
+
+  /* ---- Help guide ---- */
+  #btnHelp{font-weight:700;min-width:30px}
+  #help{position:fixed;inset:0;background:rgba(6,9,14,.78);display:none;align-items:center;justify-content:center;z-index:80}
+  #help.show{display:flex}
+  #help .sheet{width:min(740px,94vw);max-height:88vh}
+  #help .sheet-b{padding:0}
+  .guide{padding:20px 24px}
+  .guide h2{font-family:var(--mono);font-size:13px;color:var(--accent2);margin:24px 0 8px;
+    padding-bottom:5px;border-bottom:1px solid var(--line)}
+  .guide h2:first-child{margin-top:0}
+  .guide p{margin:6px 0;line-height:1.6}
+  .guide ul{margin:6px 0;padding-left:20px} .guide li{margin:5px 0;line-height:1.55}
+  .guide b{color:var(--accent2)}
+  .guide code{font-family:var(--mono);font-size:.86em;background:var(--panel2);border:1px solid var(--line);padding:1px 5px;border-radius:4px}
+  .guide kbd{font-family:var(--mono);font-size:.82em;background:#0b0e14;border:1px solid var(--line);border-radius:4px;padding:1px 6px}
+  .guide pre{background:#0b0e14;border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;
+    font-family:var(--mono);font-size:11.5px;line-height:1.6;color:#cdd6e3;margin:9px 0}
+  .guide .dot{display:inline-block;width:9px;height:9px;border-radius:3px;vertical-align:middle;margin-right:3px}
+  .guide .lead{color:var(--muted);font-size:12px;margin-bottom:4px}
+</style>
+</head>
+<body>
+  <div id="top">
+    <div class="brand">Uyi<b>BT</b></div>
+    <input class="tname" id="treeName" placeholder="tên cây (vd GruntAI)" value="GruntAI">
+    <div class="sep"></div>
+    <div class="palette" id="palette"></div>
+    <div class="spring"></div>
+    <button id="btnExplain">📖 Giải thích</button>
+    <button id="btnNew">New</button>
+    <button id="btnOpen">Open</button>
+    <button class="primary" id="btnExport">Export .btjson</button>
+    <button id="btnHelp" title="Hướng dẫn sử dụng">?</button>
+    <input type="file" id="fileInput" accept=".btjson,.json,application/json" hidden>
+  </div>
+
+  <div id="explain">
+    <div class="eh"><h3>Giải thích hành vi</h3><button class="cp" id="btnCopyExplain">Copy</button></div>
+    <div id="explainBody"></div>
+  </div>
+
+  <div id="viewport">
+    <svg id="wires"><g id="wireLayer"></g></svg>
+    <div id="world"></div>
+  </div>
+
+  <div id="side">
+    <div id="inspector"></div>
+  </div>
+
+  <div id="modal">
+    <div class="sheet">
+      <div class="sheet-h"><b id="modalTitle">JSON</b><button id="modalClose">✕</button></div>
+      <div class="sheet-b"><textarea id="modalText" spellcheck="false"></textarea></div>
+      <div class="sheet-f" id="modalFoot"></div>
+    </div>
+  </div>
+  <div id="help">
+    <div class="sheet">
+      <div class="sheet-h"><b>Hướng dẫn — UyiCore BT Editor</b><button id="helpClose">✕</button></div>
+      <div class="sheet-b"><div class="guide">
+
+        <p class="lead">Trình thiết kế Behavior Tree trực quan cho UyiCore. Quy trình: vẽ cây ở đây → export <code>.btjson</code> → thả vào Unity thành ScriptableObject → chạy.</p>
+
+        <h2>1 · Thao tác</h2>
+        <ul>
+          <li>Kéo <b>nền</b> = di chuyển (pan) · <b>lăn chuột</b> = phóng to / thu nhỏ (zoom)</li>
+          <li>Bấm node ở <b>palette</b> (thanh trên) = tạo node giữa màn hình</li>
+          <li>Kéo <b>thân node</b> = di chuyển node</li>
+          <li>Kéo <b>chấm xanh dưới</b> node → thả lên node khác = nối cha–con</li>
+          <li>Kéo <b>chấm xanh</b> → thả <b>chỗ trống</b> = hiện menu chọn node → tạo + nối dây luôn</li>
+          <li>Click vào <b>dây</b> = xoá dây · phím <kbd>Del</kbd> = xoá node đang chọn</li>
+          <li>Click node = chọn & mở Inspector (bên phải)</li>
+        </ul>
+
+        <h2>2 · Inspector (phải)</h2>
+        <ul>
+          <li><b>Type</b>: đổi loại node</li>
+          <li><b>Nhãn</b>: mô tả ngắn — panel <i>Giải thích</i> ưu tiên dùng nhãn này (đặt "HP dưới 20%" cho dễ đọc)</li>
+          <li><b>Ref</b>: chỉ node Action/Condition/Do — là id đăng ký trong <code>BTRegistry</code> bên Unity</li>
+          <li><b>Params</b>: cặp key/value; có chip gợi ý param theo type (vd Cooldown → <code>duration</code>)</li>
+        </ul>
+
+        <h2>3 · Panel Giải thích (trái)</h2>
+        <p>Tự dịch cây thành văn bản theo cấp ưu tiên ("Nếu ... thì ..."). Nút <b>📖 Giải thích</b> ẩn/hiện, <b>Copy</b> lấy text thuần. Đặt <b>Nhãn</b> cho node để đọc thuần Việt.</p>
+
+        <h2>4 · Root &amp; thứ tự</h2>
+        <ul>
+          <li><b>Root</b> = node không có cha (viền vàng, badge ROOT). Cây phải có đúng 1 root.</li>
+          <li><b>Thứ tự con</b> = trái → phải theo vị trí X (số trên node). Selector/Sequence xét con theo thứ tự này.</li>
+        </ul>
+
+        <h2>5 · Các loại node</h2>
+        <ul>
+          <li><span class="dot" style="background:var(--composite)"></span><b>Composite</b>: Selector (ưu tiên/OR) · Sequence (tuần tự/AND) · Parallel (song song)</li>
+          <li><span class="dot" style="background:var(--decorator)"></span><b>Decorator</b> (1 con): Inverter · Repeater · Cooldown · UntilSuccess · UntilFailure</li>
+          <li><span class="dot" style="background:var(--leaf)"></span><b>Leaf</b>: Wait · Succeed · Fail</li>
+          <li><span class="dot" style="background:var(--action)"></span><b>Registry</b> (cần ref): Action (trả NodeStatus) · Condition (bool) · Do (chạy rồi Success)</li>
+        </ul>
+
+        <h2>6 · Lưu / Mở</h2>
+        <ul>
+          <li><b>Export .btjson</b>: Tải file hoặc Copy JSON</li>
+          <li><b>Open</b> hoặc kéo-thả file <code>.btjson</code> vào canvas = mở lại để sửa</li>
+          <li>Tự lưu nháp vào browser (localStorage) — mở lại tab không mất</li>
+        </ul>
+
+        <h2>7 · Áp dụng vào Unity</h2>
+        <p class="lead">Đây là phần ráp cây vào game thật.</p>
+        <p><b>Bước 1.</b> Export cây → file <code>GruntAI.btjson</code>.</p>
+        <p><b>Bước 2.</b> Thả file vào <code>Assets/</code> — UyiCore tự import thành <code>BehaviorTreeAsset</code> (ScriptableObject). Inspector của SO hiện outline + báo lỗi nếu có.</p>
+        <p><b>Bước 3.</b> Viết <code>BTRegistry</code> map mỗi <b>ref</b> trong cây → hành vi C# thật:</p>
+<pre>var reg = new BTRegistry&lt;Enemy&gt;()
+    .Condition("HpBelow", (e,p) =&gt; e.HpPercent &lt; p.GetFloat("threshold",0.2f))
+    .Do("Flee",   e =&gt; e.Flee())
+    .Do("Patrol", e =&gt; e.Patrol())
+    .Action("Chase", e =&gt; e.MoveTo(e.Player.position)
+                           ? NodeStatus.Success : NodeStatus.Running);</pre>
+        <p><b>Bước 4.</b> Compile asset → cây runtime, tick mỗi frame:</p>
+<pre>[SerializeField] BehaviorTreeAsset tree;   // kéo SO vào field này
+BehaviorTree&lt;Enemy&gt; _bt;
+void Start(){ _bt = BehaviorTreeCompiler.Compile(tree, this, reg); }
+void Update(){ _bt.Tick(Time.deltaTime); }</pre>
+        <ul>
+          <li>Mỗi enemy Compile 1 lần → có cây <b>state riêng</b>.</li>
+          <li>Ref nào <b>chưa đăng ký</b> → node đó fail + log rõ tên (không crash).</li>
+          <li><code>x,y</code> trong JSON chỉ để editor nhớ layout — Unity <code>JsonUtility</code> bỏ qua.</li>
+          <li>Đuôi <code>.btjson</code> riêng nên không đụng các file <code>.json</code> khác trong project.</li>
+        </ul>
+
+      </div></div>
+      <div class="sheet-f"><button id="helpOk" class="primary">Đã hiểu</button></div>
+    </div>
+  </div>
+  <div id="toast"></div>
+  <div id="nodeMenu"></div>
+
+<script>
+/* ============================ Model & catalog ============================ */
+const TYPES = {
+  Selector:{cat:"composite",kids:Infinity}, Sequence:{cat:"composite",kids:Infinity},
+  Parallel:{cat:"composite",kids:Infinity,params:[["successThreshold","-1"]]},
+  Inverter:{cat:"decorator",kids:1}, Repeater:{cat:"decorator",kids:1,params:[["count","-1"]]},
+  Cooldown:{cat:"decorator",kids:1,params:[["duration","1"],["resetOnFailure","true"]]},
+  UntilSuccess:{cat:"decorator",kids:1}, UntilFailure:{cat:"decorator",kids:1},
+  Wait:{cat:"leaf",kids:0,params:[["seconds","1"]]}, Succeed:{cat:"leaf",kids:0}, Fail:{cat:"leaf",kids:0},
+  Action:{cat:"action",kids:0,ref:true}, Condition:{cat:"condition",kids:0,ref:true}, Do:{cat:"do",kids:0,ref:true},
+};
+const DESC = {
+  Selector:"Composite (OR / ưu tiên): thử con lần lượt tới khi 1 con Success thì dừng. Hết mà đều Fail → Fail.",
+  Sequence:"Composite (AND): chạy con tuần tự; 1 con Fail là dừng & Fail. Hết con → Success.",
+  Parallel:"Composite: chạy tất cả con song song. Đủ successThreshold con Success → Success.",
+  Inverter:"Decorator (1 con): đảo Success↔Failure. Running giữ nguyên.",
+  Repeater:"Decorator (1 con): lặp con count lần (-1 = vô hạn).",
+  Cooldown:"Decorator (1 con): sau mỗi lần con chạy, chặn lại trong duration giây (trả Failure).",
+  UntilSuccess:"Decorator (1 con): lặp con tới khi nó Success.",
+  UntilFailure:"Decorator (1 con): lặp con tới khi nó Failure.",
+  Wait:"Leaf: đợi seconds giây rồi trả Success.",
+  Succeed:"Leaf: luôn trả Success (ép parent đi tiếp).",
+  Fail:"Leaf: luôn trả Failure (ép Selector thử nhánh khác).",
+  Action:"Leaf registry: gọi hàm trả NodeStatus (Running/Success/Failure). Điền ref = id đăng ký trong BTRegistry.",
+  Condition:"Leaf registry: kiểm tra điều kiện — true→Success, false→Failure. ref = id đăng ký.",
+  Do:"Leaf registry: chạy hàm rồi luôn Success. ref = id đăng ký.",
+};
+const PALETTE = [
+  ["Composite",["Selector","Sequence","Parallel"]],
+  ["Decorator",["Inverter","Repeater","Cooldown","UntilSuccess","UntilFailure"]],
+  ["Leaf",["Wait","Succeed","Fail"]],
+  ["Registry",["Action","Condition","Do"]],
+];
+const LS_KEY="uyibt.autosave.v1", LS_CAT="uyibt.catalog.v1";
+
+let state = { treeName:"GruntAI", nodes:{}, edges:[] };   // edges: {from:parentId, to:childId}
+let selId=null, counter=0;
+let view={x:60,y:80,z:1};
+
+/* ============================ DOM refs ============================ */
+const world=document.getElementById("world"), wireLayer=document.getElementById("wireLayer"),
+      wiresSvg=document.getElementById("wires"), viewport=document.getElementById("viewport"),
+      inspector=document.getElementById("inspector"), treeNameEl=document.getElementById("treeName");
+
+/* ============================ Helpers ============================ */
+const uid=()=>{ let id; do{ id="n"+(counter++);}while(state.nodes[id]); return id; };
+const parentOf=id=>{ const e=state.edges.find(e=>e.to===id); return e?e.from:null; };
+const childrenOf=id=>state.edges.filter(e=>e.from===id).map(e=>e.to);
+function orderedChildren(id){
+  return childrenOf(id).sort((a,b)=>{
+    const A=state.nodes[a],B=state.nodes[b];
+    return (A.x-B.x)||(A.y-B.y);
+  });
+}
+function roots(){ return Object.keys(state.nodes).filter(id=>parentOf(id)===null); }
+function isAncestor(anc,node){ let p=parentOf(node); while(p){ if(p===anc)return true; p=parentOf(p);} return false; }
+function toast(msg){ const t=document.getElementById("toast"); t.textContent=msg; t.classList.add("show");
+  clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove("show"),1600); }
+
+function addNode(type,x,y){
+  const id=uid();
+  const preset=(TYPES[type].params||[]).map(([k,v])=>({key:k,value:v}));
+  state.nodes[id]={id,type,ref:"",name:"",params:preset,x:Math.round(x),y:Math.round(y)};
+  render(); select(id); save(); return id;
+}
+function removeNode(id){
+  delete state.nodes[id];
+  state.edges=state.edges.filter(e=>e.from!==id&&e.to!==id);
+  if(selId===id)selId=null;
+  render(); renderInspector(); save();
+}
+function connect(from,to){
+  if(from===to)return toast("Không nối vào chính nó");
+  if(TYPES[state.nodes[from].type].kids===0)return toast("Leaf không có con");
+  if(isAncestor(to,from))return toast("Sẽ tạo vòng lặp");
+  if(childrenOf(from).length>=TYPES[state.nodes[from].type].kids)return toast("Decorator chỉ 1 con");
+  state.edges=state.edges.filter(e=>e.to!==to);      // single parent → reparent
+  state.edges.push({from,to});
+  render(); save();
+}
+
+/* ============================ Render ============================ */
+function applyTransform(){ const t=`translate(${view.x}px,${view.y}px) scale(${view.z})`;
+  world.style.transform=t; wiresSvg.style.transform=t; }
+function render(){
+  applyTransform();
+  // nodes
+  world.querySelectorAll(".node").forEach(n=>n.remove());
+  const order={};
+  for(const id of Object.keys(state.nodes)){
+    orderedChildren(id).forEach((c,i)=>order[c]=i+1);
+  }
+  const rootSet=new Set(roots());
+  for(const id in state.nodes){
+    const n=state.nodes[id], t=TYPES[n.type];
+    const el=document.createElement("div");
+    el.className=`node cat-${t.cat}`+(id===selId?" sel":"")+(rootSet.has(id)&&rootSet.size===1?" isroot":"");
+    el.style.left=n.x+"px"; el.style.top=n.y+"px"; el.dataset.id=id; el.title=DESC[n.type]||n.type;
+    const pmSummary=n.params.filter(p=>p.key).map(p=>`${p.key}=${p.value}`).join("  ");
+    el.innerHTML=`
+      <div class="ord ${order[id]?"show":""}">${order[id]||""}</div>
+      <div class="port in"></div>
+      <div class="head">${n.type}</div>
+      <div class="body">
+        ${t.ref?`<div class="ref">${n.ref||"⟨chưa chọn ref⟩"}</div>`:""}
+        ${n.name?`<div>${esc(n.name)}</div>`:""}
+        ${pmSummary?`<div class="pm">${esc(pmSummary)}</div>`:""}
+        ${(!t.ref&&!pmSummary&&!n.name)?`<span class="pm">—</span>`:""}
+      </div>
+      ${t.kids!==0?`<div class="port out"></div>`:""}`;
+    world.appendChild(el);
+  }
+  renderWires();
+  renderExplain();
+}
+function nodeSize(id){ const el=world.querySelector(`.node[data-id="${id}"]`); return el?{w:el.offsetWidth,h:el.offsetHeight}:{w:172,h:60}; }
+function renderWires(){
+  wireLayer.innerHTML="";
+  for(const e of state.edges){
+    const P=state.nodes[e.from], C=state.nodes[e.to]; if(!P||!C)continue;
+    const ps=nodeSize(e.from);
+    const x1=P.x+ps.w/2, y1=P.y+ps.h, x2=C.x+nodeSize(e.to).w/2, y2=C.y;
+    wireLayer.appendChild(wirePath(x1,y1,x2,y2,e));
+  }
+}
+function wirePath(x1,y1,x2,y2,edge){
+  const dy=Math.max(30,Math.abs(y2-y1)*0.5);
+  const d=`M ${x1} ${y1} C ${x1} ${y1+dy}, ${x2} ${y2-dy}, ${x2} ${y2}`;
+  const g=document.createElementNS("http://www.w3.org/2000/svg","g");
+  const hit=mkPath(d,"hit"), vis=mkPath(d,"");
+  if(edge){ hit.style.pointerEvents="stroke";
+    hit.addEventListener("click",ev=>{ev.stopPropagation();
+      state.edges=state.edges.filter(x=>x!==edge); render(); save(); toast("Đã xoá wire");}); }
+  g.appendChild(hit); g.appendChild(vis); return g;
+}
+const mkPath=(d,cls)=>{ const p=document.createElementNS("http://www.w3.org/2000/svg","path");
+  p.setAttribute("d",d); if(cls)p.setAttribute("class",cls); return p; };
+const esc=s=>String(s).replace(/[<>&]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
+
+/* ============================ Inspector ============================ */
+function select(id){ selId=id; render(); renderInspector(); }
+function renderInspector(){
+  const cat=getCatalog();
+  if(!selId||!state.nodes[selId]){
+    inspector.innerHTML=`<h3>Cây</h3>${validityHTML()}
+      <label>Registry catalog (refs gợi ý)</label>
+      <div class="hint">Mỗi id 1 dòng. Dùng cho ô ref của Action/Condition/Do.</div>
+      <textarea id="catBox" style="min-height:90px;margin-top:6px">${esc(cat.join("\n"))}</textarea>
+      <div style="margin-top:14px" class="hint">
+        <b>Thao tác</b><br>
+        • Kéo nền = pan · lăn chuột = zoom<br>
+        • Kéo chấm <span style="color:var(--accent)">dưới</span> node → thả lên node khác = nối cha-con<br>
+        • Click wire = xoá · <span class="kbd">Del</span> = xoá node đang chọn<br>
+        • Thứ tự con = trái→phải theo vị trí X
+      </div>`;
+    document.getElementById("catBox").addEventListener("change",e=>{
+      localStorage.setItem(LS_CAT,JSON.stringify(e.target.value.split("\n").map(s=>s.trim()).filter(Boolean)));
+      renderInspector();
+    });
+    return;
+  }
+  const n=state.nodes[selId], t=TYPES[n.type];
+  let h=`<h3>Node · <span style="font-family:var(--mono);color:var(--ink)">${n.id}</span></h3>
+    <div class="hint" style="margin:-2px 0 9px;line-height:1.45">${esc(DESC[n.type]||"")}</div>
+    <label>Type</label><select id="fType">${
+      Object.keys(TYPES).map(k=>`<option ${k===n.type?"selected":""}>${k}</option>`).join("")}</select>
+    <label>Nhãn (optional)</label><input id="fName" value="${esc(n.name)}" placeholder="mô tả ngắn">`;
+  if(t.ref){
+    h+=`<label>Ref <span style="color:var(--faint)">(id đăng ký trong BTRegistry)</span></label>
+      <input id="fRef" list="refList" value="${esc(n.ref)}" placeholder="vd Attack">
+      <datalist id="refList">${cat.map(c=>`<option value="${esc(c)}">`).join("")}</datalist>`;
+  }
+  h+=`<label>Params</label><div id="pmList"></div>
+    <div class="row2" style="margin-top:5px"><button id="pmAdd">+ param</button></div>`;
+  const preset=(t.params||[]).map(p=>p[0]);
+  if(preset.length){ h+=`<div class="chips">${preset.map(k=>`<span class="chip" data-k="${k}">${k}</span>`).join("")}</div>`; }
+  h+=`<div style="margin-top:14px"><button id="btnDel">Xoá node</button></div>`;
+  inspector.innerHTML=h;
+
+  document.getElementById("fType").addEventListener("change",e=>{
+    n.type=e.target.value; if(TYPES[n.type].kids===0){ state.edges=state.edges.filter(x=>x.from!==n.id); }
+    if(!TYPES[n.type].ref)n.ref="";
+    render(); renderInspector(); save();
+  });
+  document.getElementById("fName").addEventListener("input",e=>{n.name=e.target.value;renderNode(n.id);save();});
+  const refEl=document.getElementById("fRef");
+  if(refEl)refEl.addEventListener("input",e=>{n.ref=e.target.value;renderNode(n.id);save();});
+  renderParams(n);
+  document.getElementById("pmAdd").addEventListener("click",()=>{n.params.push({key:"",value:""});renderParams(n);save();});
+  inspector.querySelectorAll(".chip").forEach(c=>c.addEventListener("click",()=>{
+    const k=c.dataset.k; if(!n.params.some(p=>p.key===k)){const def=(t.params||[]).find(p=>p[0]===k);
+      n.params.push({key:k,value:def?def[1]:""});renderParams(n);renderNode(n.id);save();}}));
+  document.getElementById("btnDel").addEventListener("click",()=>removeNode(n.id));
+}
+function renderParams(n){
+  const box=document.getElementById("pmList"); box.innerHTML="";
+  n.params.forEach((p,i)=>{
+    const row=document.createElement("div"); row.className="pm-row";
+    row.innerHTML=`<input placeholder="key" value="${esc(p.key)}"><input placeholder="value" value="${esc(p.value)}"><button>✕</button>`;
+    const [k,v,del]=row.children;
+    k.addEventListener("input",e=>{p.key=e.target.value;renderNode(n.id);save();});
+    v.addEventListener("input",e=>{p.value=e.target.value;renderNode(n.id);save();});
+    del.addEventListener("click",()=>{n.params.splice(i,1);renderParams(n);renderNode(n.id);save();});
+    box.appendChild(row);
+  });
+}
+function renderNode(id){ render(); }   // simple: full re-render keeps wires correct
+
+/* ============================ Validation ============================ */
+function validate(){
+  const iss=[]; const ids=Object.keys(state.nodes);
+  if(ids.length===0){ iss.push(["warn","Cây rỗng — thêm node từ palette."]); return iss; }
+  const rs=roots();
+  if(rs.length===0)iss.push(["err","Không có root (mọi node đều có cha → vòng lặp?)."]);
+  else if(rs.length>1)iss.push(["err","Có "+rs.length+" root rời nhau — cây phải có đúng 1 gốc."]);
+  for(const id in state.nodes){ const n=state.nodes[id],t=TYPES[n.type];
+    const kc=childrenOf(id).length;
+    if(t.kids===0&&kc>0)iss.push(["err",`Leaf '${n.type}' (${id}) không được có con.`]);
+    if(t.cat==="decorator"&&kc>1)iss.push(["err",`Decorator '${n.type}' (${id}) chỉ 1 con.`]);
+    if((t.cat==="composite")&&kc===0)iss.push(["warn",`Composite '${n.type}' (${id}) chưa có con.`]);
+    if(t.ref&&!n.ref.trim())iss.push(["err",`${n.type} (${id}) chưa điền ref.`]);
+  }
+  if(!iss.some(i=>i[0]==="err"))iss.unshift(["ok","Hợp lệ — export được."]);
+  return iss;
+}
+function validityHTML(){
+  return `<div class="issues">${validate().map(([lv,m])=>`<div class="issue ${lv}">${esc(m)}</div>`).join("")}</div>`;
+}
+
+/* ============================ Export / Import ============================ */
+function buildJSON(){
+  state.treeName=treeNameEl.value.trim()||"BehaviorTree";
+  const rs=roots();
+  const nodes=Object.values(state.nodes).map(n=>{
+    const o={id:n.id,type:n.type};
+    if(TYPES[n.type].ref&&n.ref)o.ref=n.ref.trim();
+    if(n.name)o.name=n.name;
+    const kids=orderedChildren(n.id);
+    if(kids.length)o.children=kids;
+    const pm=n.params.filter(p=>p.key.trim()).map(p=>({key:p.key.trim(),value:String(p.value)}));
+    if(pm.length)o.params=pm;
+    o.x=n.x; o.y=n.y;
+    return o;
+  });
+  return { name:state.treeName, root:rs.length===1?rs[0]:(rs[0]||""), nodes };
+}
+function loadJSON(obj){
+  if(!obj||!Array.isArray(obj.nodes))throw new Error("JSON không có mảng nodes");
+  state={treeName:obj.name||"BehaviorTree",nodes:{},edges:[]};
+  let max=-1;
+  for(const nd of obj.nodes){
+    if(!nd.id)continue;
+    if(!TYPES[nd.type]){ console.warn("type lạ",nd.type); }
+    state.nodes[nd.id]={id:nd.id,type:nd.type||"Sequence",ref:nd.ref||"",name:nd.name||"",
+      params:(nd.params||[]).map(p=>({key:p.key,value:p.value})),
+      x:nd.x??(60+Math.random()*300),y:nd.y??(60+Math.random()*300)};
+    const m=/^n(\d+)$/.exec(nd.id); if(m)max=Math.max(max,+m[1]);
+  }
+  for(const nd of obj.nodes){ (nd.children||[]).forEach(c=>{ if(state.nodes[c])state.edges.push({from:nd.id,to:c}); }); }
+  counter=max+1; selId=null;
+  treeNameEl.value=state.treeName;
+  render(); renderInspector(); save();
+}
+function openModal(title,text,footBtns){
+  document.getElementById("modalTitle").textContent=title;
+  document.getElementById("modalText").value=text;
+  const foot=document.getElementById("modalFoot"); foot.innerHTML="";
+  footBtns.forEach(b=>{const btn=document.createElement("button");btn.textContent=b.label;
+    if(b.primary)btn.className="primary";btn.onclick=b.fn;foot.appendChild(btn);});
+  document.getElementById("modal").classList.add("show");
+}
+const closeModal=()=>document.getElementById("modal").classList.remove("show");
+
+document.getElementById("btnExport").addEventListener("click",()=>{
+  const json=JSON.stringify(buildJSON(),null,2);
+  openModal(state.treeName+".btjson",json,[
+    {label:"Copy",fn:async()=>{try{await navigator.clipboard.writeText(json);toast("Đã copy JSON");}catch{document.getElementById("modalText").select();document.execCommand("copy");toast("Đã copy");}}},
+    {label:"Tải file",primary:true,fn:()=>{download(state.treeName+".btjson",json);}},
+  ]);
+});
+function download(name,text){
+  const blob=new Blob([text],{type:"application/json"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  toast("Đã tải "+name);
+}
+document.getElementById("btnOpen").addEventListener("click",()=>document.getElementById("fileInput").click());
+document.getElementById("fileInput").addEventListener("change",e=>{
+  const f=e.target.files[0]; if(!f)return; const r=new FileReader();
+  r.onload=()=>{ try{loadJSON(JSON.parse(r.result));toast("Đã mở "+f.name);}catch(err){toast("Lỗi: "+err.message);} };
+  r.readAsText(f); e.target.value="";
+});
+document.getElementById("btnNew").addEventListener("click",()=>{
+  if(Object.keys(state.nodes).length&&!confirm("Xoá hết cây hiện tại?"))return;
+  state={treeName:treeNameEl.value||"BehaviorTree",nodes:{},edges:[]}; selId=null; counter=0;
+  render(); renderInspector(); save();
+});
+document.getElementById("modalClose").addEventListener("click",closeModal);
+document.getElementById("modal").addEventListener("click",e=>{if(e.target.id==="modal")closeModal();});
+
+const helpEl=document.getElementById("help");
+const showHelp=()=>helpEl.classList.add("show"), hideHelp=()=>helpEl.classList.remove("show");
+document.getElementById("btnHelp").addEventListener("click",showHelp);
+document.getElementById("helpClose").addEventListener("click",hideHelp);
+document.getElementById("helpOk").addEventListener("click",hideHelp);
+helpEl.addEventListener("click",e=>{if(e.target.id==="help")hideHelp();});
+document.addEventListener("keydown",e=>{if(e.key==="Escape")hideHelp();});
+
+/* ============================ Catalog & persistence ============================ */
+function getCatalog(){ try{const c=JSON.parse(localStorage.getItem(LS_CAT));if(Array.isArray(c))return c;}catch{}
+  return ["Patrol","Chase","Attack","Flee","HpBelow","InRange","CanSeePlayer"]; }
+function save(){ try{ state.treeName=treeNameEl.value; localStorage.setItem(LS_KEY,JSON.stringify(buildJSON())); }catch{} }
+function load(){ try{const s=localStorage.getItem(LS_KEY);if(s){loadJSON(JSON.parse(s));return true;}}catch{} return false; }
+
+/* ============================ Palette UI ============================ */
+const pal=document.getElementById("palette");
+for(const [group,items] of PALETTE){
+  const g=document.createElement("div"); g.className="pgroup";
+  g.innerHTML=`<span class="lbl">${group}</span>`;
+  items.forEach(tp=>{ const b=document.createElement("button"); b.className="padd cat-"+TYPES[tp].cat;
+    b.textContent=tp; b.title=DESC[tp]||tp; b.style.borderColor="transparent";
+    b.addEventListener("click",()=>{ const c=viewCenter(); addNode(tp,c.x-86,c.y-30); });
+    g.appendChild(b); });
+  pal.appendChild(g);
+}
+function viewCenter(){ const r=viewport.getBoundingClientRect();
+  return { x:(r.width/2-view.x)/view.z, y:(r.height/2-view.y)/view.z }; }
+
+/* ---- Node create menu (kéo chấm ra chỗ trống → chọn node → tạo + nối) ---- */
+const CATCOLOR={composite:"var(--composite)",decorator:"var(--decorator)",leaf:"var(--leaf)",action:"var(--action)",condition:"var(--condition)",do:"var(--do)"};
+let pendingConn=null;
+function buildNodeMenu(){
+  const m=document.getElementById("nodeMenu"); m.innerHTML="";
+  for(const [group,items] of PALETTE){
+    const h=document.createElement("div"); h.className="mh"; h.textContent=group; m.appendChild(h);
+    items.forEach(tp=>{ const it=document.createElement("div"); it.className="mi"; it.title=DESC[tp]||tp;
+      it.innerHTML=`<span class="dot" style="background:${CATCOLOR[TYPES[tp].cat]}"></span><span class="nm">${tp}</span>`;
+      it.addEventListener("click",()=>chooseNode(tp)); m.appendChild(it); });
+  }
+}
+function openNodeMenu(sx,sy,from,wx,wy){
+  pendingConn={from,wx,wy};
+  const m=document.getElementById("nodeMenu"); m.classList.add("show");
+  const mw=m.offsetWidth||190, mh=m.offsetHeight||300;
+  m.style.left=Math.max(6,Math.min(sx,innerWidth-mw-8))+"px";
+  m.style.top=Math.max(6,Math.min(sy,innerHeight-mh-8))+"px";
+  setTimeout(()=>document.addEventListener("pointerdown",menuOutside,true),0);
+  document.addEventListener("keydown",menuEsc);
+}
+function closeNodeMenu(){ document.getElementById("nodeMenu").classList.remove("show"); pendingConn=null;
+  document.removeEventListener("pointerdown",menuOutside,true); document.removeEventListener("keydown",menuEsc); }
+function menuOutside(e){ if(!e.target.closest("#nodeMenu"))closeNodeMenu(); }
+function menuEsc(e){ if(e.key==="Escape")closeNodeMenu(); }
+function chooseNode(type){ if(!pendingConn)return; const {from,wx,wy}=pendingConn;
+  const id=addNode(type,Math.round(wx-86),Math.round(wy)); connect(from,id); closeNodeMenu(); }
+
+/* ============================ Interaction: pan/zoom/drag/connect ============================ */
+let drag=null; // {mode, id, offx, offy} or pan or wire
+viewport.addEventListener("pointerdown",e=>{
+  const portOut=e.target.closest(".port.out");
+  const nodeEl=e.target.closest(".node");
+  if(portOut&&nodeEl){ // start wire
+    drag={mode:"wire",from:nodeEl.dataset.id};
+    drag.tmp=mkPath("","temp"); wireLayer.appendChild(drag.tmp);
+    viewport.setPointerCapture(e.pointerId); e.preventDefault(); return;
+  }
+  if(nodeEl){ // move node (grab on head or body)
+    const id=nodeEl.dataset.id; select(id);
+    const n=state.nodes[id]; const w=screenToWorld(e.clientX,e.clientY);
+    drag={mode:"node",id,offx:w.x-n.x,offy:w.y-n.y};
+    viewport.setPointerCapture(e.pointerId); return;
+  }
+  // pan
+  drag={mode:"pan",sx:e.clientX,sy:e.clientY,ox:view.x,oy:view.y};
+  viewport.classList.add("panning"); viewport.setPointerCapture(e.pointerId);
+  if(e.target===viewport||e.target===world){ select(null); }
+});
+viewport.addEventListener("pointermove",e=>{
+  if(!drag)return;
+  if(drag.mode==="pan"){ view.x=drag.ox+(e.clientX-drag.sx); view.y=drag.oy+(e.clientY-drag.sy);
+    applyTransform(); renderWires(); return; }
+  if(drag.mode==="node"){ const w=screenToWorld(e.clientX,e.clientY);
+    const n=state.nodes[drag.id]; n.x=Math.round(w.x-drag.offx); n.y=Math.round(w.y-drag.offy);
+    const el=world.querySelector(`.node[data-id="${drag.id}"]`); el.style.left=n.x+"px"; el.style.top=n.y+"px";
+    renderWires(); return; }
+  if(drag.mode==="wire"){ const P=state.nodes[drag.from]; const ps=nodeSize(drag.from);
+    const w=screenToWorld(e.clientX,e.clientY);
+    drag.tmp.setAttribute("d",`M ${P.x+ps.w/2} ${P.y+ps.h} L ${w.x} ${w.y}`); return; }
+});
+viewport.addEventListener("pointerup",e=>{
+  if(!drag)return;
+  if(drag.mode==="wire"){ drag.tmp.remove();
+    const tgt=document.elementFromPoint(e.clientX,e.clientY)?.closest(".node");
+    if(tgt&&tgt.dataset.id!==drag.from){ connect(drag.from,tgt.dataset.id); }
+    else if(!tgt){ // thả ra chỗ trống → mở menu tạo node
+      const from=drag.from, cap=TYPES[state.nodes[from].type].kids;
+      if(childrenOf(from).length>=cap){ toast(cap===0?"Leaf không có con":"Decorator chỉ 1 con"); }
+      else { const w=screenToWorld(e.clientX,e.clientY); openNodeMenu(e.clientX,e.clientY,from,w.x,w.y); }
+    }
+  }
+  if(drag.mode==="node")save();
+  viewport.classList.remove("panning"); drag=null;
+});
+viewport.addEventListener("wheel",e=>{
+  e.preventDefault(); const r=viewport.getBoundingClientRect();
+  const mx=e.clientX-r.left, my=e.clientY-r.top;
+  const wx=(mx-view.x)/view.z, wy=(my-view.y)/view.z;
+  view.z=Math.min(2,Math.max(.3,view.z*(e.deltaY<0?1.1:0.9)));
+  view.x=mx-wx*view.z; view.y=my-wy*view.z;
+  applyTransform(); renderWires();
+},{passive:false});
+function screenToWorld(cx,cy){ const r=viewport.getBoundingClientRect();
+  return { x:(cx-r.left-view.x)/view.z, y:(cy-r.top-view.y)/view.z }; }
+
+document.addEventListener("keydown",e=>{
+  if((e.key==="Delete"||e.key==="Backspace")&&selId&&document.activeElement.tagName!=="INPUT"&&document.activeElement.tagName!=="TEXTAREA"){
+    removeNode(selId); e.preventDefault();
+  }
+});
+treeNameEl.addEventListener("input",save);
+
+/* drag-drop a .btjson onto the canvas */
+viewport.addEventListener("dragover",e=>{e.preventDefault();viewport.classList.add("dragover");});
+viewport.addEventListener("dragleave",()=>viewport.classList.remove("dragover"));
+viewport.addEventListener("drop",e=>{ e.preventDefault(); viewport.classList.remove("dragover");
+  const f=e.dataTransfer.files[0]; if(!f)return; const r=new FileReader();
+  r.onload=()=>{try{loadJSON(JSON.parse(r.result));toast("Đã mở "+f.name);}catch(err){toast("Lỗi: "+err.message);}};
+  r.readAsText(f);
+});
+
+/* ============================ Explain (tree → văn bản) ============================ */
+function pretty(s){ return s? s.replace(/([a-z0-9])([A-Z])/g,"$1 $2").replace(/[_-]+/g," ").trim() : ""; }
+function pstr(n){ const ps=n.params.filter(p=>p.key.trim());
+  return ps.length? " ("+ps.map(p=>`${p.key.trim()} ${p.value}`).join(", ")+")" : ""; }
+function condLabel(n){ return n.name? esc(n.name) : esc(pretty(n.ref||"?")+pstr(n)); }
+function actLabel(n){ return n.name? esc(n.name) : esc(pretty(n.ref||"?")); }
+function gp(n,k,d){ const p=n.params.find(p=>p.key===k); return p? p.value : d; }
+function isGuarded(id){ const n=state.nodes[id]; if(!n)return false;
+  if(n.type==="Condition")return true;
+  if(n.type==="Sequence"){ const k=orderedChildren(id); return k.length>0 && state.nodes[k[0]] && state.nodes[k[0]].type==="Condition"; }
+  return false; }
+
+function narr(id){
+  const n=state.nodes[id]; if(!n)return `<span class="nx-def">(thiếu node)</span>`;
+  const k=orderedChildren(id);
+  switch(n.type){
+    case "Selector":
+      return `<div class="nx-sel">Ưu tiên lần lượt — chạy nhánh đầu tiên khả thi:</div>`+
+             `<ol class="nx-list">`+k.map(c=>`<li>${narr(c)}</li>`).join("")+`</ol>`;
+    case "Sequence": {
+      let i=0; const guards=[];
+      while(i<k.length && state.nodes[k[i]] && state.nodes[k[i]].type==="Condition"){ guards.push(k[i]); i++; }
+      const rest=k.slice(i);
+      const body = rest.length===0 ? `<span class="nx-def">(chưa có hành động)</span>`
+        : rest.length===1 ? narr(rest[0])
+        : `<ol class="nx-list">`+rest.map(c=>`<li>${narr(c)}</li>`).join("")+`</ol>`;
+      if(guards.length){ const g=guards.map(c=>`<b>${condLabel(state.nodes[c])}</b>`).join(" và ");
+        return `Nếu ${g} thì: ${body}`; }
+      return rest.length>1 ? `Làm lần lượt: ${body}` : body;
+    }
+    case "Parallel": {
+      const th=gp(n,"successThreshold","-1"); const need=(th==="-1"||+th<=0)?"tất cả":th+" nhánh";
+      return `Làm đồng thời (cần ${need} thành công):<ol class="nx-list">`+k.map(c=>`<li>${narr(c)}</li>`).join("")+`</ol>`;
+    }
+    case "Inverter":     return `Ngược lại của: ${narr(k[0])}`;
+    case "Repeater":   { const c=gp(n,"count","-1"); return `${(c==="-1"||+c<=0)?"Lặp vô hạn":"Lặp "+c+" lần"}: ${narr(k[0])}`; }
+    case "Cooldown":     return `${narr(k[0])} <i>(hồi chiêu ${gp(n,"duration","0")}s)</i>`;
+    case "UntilSuccess": return `Lặp tới khi thành công: ${narr(k[0])}`;
+    case "UntilFailure": return `Lặp tới khi thất bại: ${narr(k[0])}`;
+    case "Wait":         return `đợi ${gp(n,"seconds","1")} giây`;
+    case "Succeed":      return `luôn thành công`;
+    case "Fail":         return `luôn thất bại`;
+    case "Action":       return `<b>${actLabel(n)}</b>`;
+    case "Do":           return `<b>${actLabel(n)}</b>`;
+    case "Condition":    return `kiểm tra <b>${condLabel(n)}</b>`;
+    default:             return esc(n.type);
+  }
+}
+
+function renderExplain(){
+  const box=document.getElementById("explainBody"); if(!box)return;
+  if(document.body.classList.contains("hide-explain"))return;
+  if(Object.keys(state.nodes).length===0){ box.innerHTML=`<div class="nx-def">Cây rỗng — thêm node để xem mô tả.</div>`; return; }
+  const rs=roots();
+  if(rs.length===0){ box.innerHTML=`<div class="issue err">Không có gốc (cây có vòng lặp?).</div>`; return; }
+  if(rs.length>1){ box.innerHTML=`<div class="issue warn">Có ${rs.length} gốc rời nhau — nối lại thành 1 cây để mô tả gọn.</div>`; }
+  let html="";
+  for(const r of rs){
+    const n=state.nodes[r];
+    if(n.type==="Selector"){
+      const k=orderedChildren(r);
+      html+=`<div class="nx-intro">Cây <b>${esc(treeNameEl.value||"này")}</b>: hành vi chia <b>${k.length} cấp ưu tiên</b>, xét từ trên xuống — gặp nhánh nào chạy được thì làm nhánh đó, xong thôi.</div>`;
+      k.forEach((c,i)=>{
+        const def = (i===k.length-1) && !isGuarded(c);
+        html+=`<div class="nx-card"><div class="nx-lvl"><span>Cấp ${i+1}</span>${def?`<span class="nx-def">mặc định</span>`:""}</div><div class="body">${narr(c)}</div></div>`;
+      });
+    } else {
+      html+=`<div class="nx-card"><div class="body">${narr(r)}</div></div>`;
+    }
+  }
+  box.innerHTML=html;
+}
+
+document.getElementById("btnExplain").addEventListener("click",()=>{
+  document.body.classList.toggle("hide-explain"); renderExplain();
+});
+document.getElementById("btnCopyExplain").addEventListener("click",async()=>{
+  const txt=document.getElementById("explainBody").innerText;
+  try{ await navigator.clipboard.writeText(txt); toast("Đã copy mô tả"); }
+  catch{ toast("Không copy được"); }
+});
+treeNameEl.addEventListener("input",renderExplain);
+
+/* ============================ Boot ============================ */
+function seed(){
+  // cây mẫu GruntAI
+  loadJSON({name:"GruntAI",root:"n0",nodes:[
+    {id:"n0",type:"Selector",x:360,y:20,children:["n1","n4","n7","n9"]},
+    {id:"n1",type:"Sequence",x:60,y:150,children:["n2","n3"]},
+    {id:"n2",type:"Condition",ref:"HpBelow",params:[{key:"threshold",value:"0.2"}],x:20,y:290},
+    {id:"n3",type:"Do",ref:"Flee",x:210,y:290},
+    {id:"n4",type:"Sequence",x:300,y:150,children:["n5","n6"]},
+    {id:"n5",type:"Condition",ref:"InRange",params:[{key:"distance",value:"5"}],x:290,y:290},
+    {id:"n6",type:"Cooldown",params:[{key:"duration",value:"0.8"}],x:470,y:290,children:["n6a"]},
+    {id:"n6a",type:"Do",ref:"Attack",x:470,y:410},
+    {id:"n7",type:"Sequence",x:560,y:150,children:["n8","n8a"]},
+    {id:"n8",type:"Condition",ref:"CanSeePlayer",x:560,y:290},
+    {id:"n8a",type:"Action",ref:"Chase",x:700,y:290},
+    {id:"n9",type:"Do",ref:"Patrol",x:820,y:150},
+  ]});
+}
+if(!load())seed();
+buildNodeMenu();
+render(); renderInspector();
+</script>
+</body>
+</html>

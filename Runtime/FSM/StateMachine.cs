@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace UyiCore.GameFlow
+namespace UyiCore.FSM
 {
     /// <summary>
     /// FSM generic, non-Mono. Owner gọi Tick/FixedTick từ Update/FixedUpdate.

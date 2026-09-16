@@ -7,8 +7,8 @@ namespace UyiCore.Scenes
     /// Đảm bảo Bootstrap scene luôn được load trước khi gameplay scene chạy.
     /// - Production: Bootstrap = scene index 0 trong Build Settings, load tự nhiên.
     /// - Editor: nếu dev bấm Play ở scene khác → tự load Bootstrap additive ở frame 1.
-    /// Để tránh thiếu manager hoàn toàn, dùng kèm BootstrapEditorPlayMode (Editor assembly)
-    /// để Editor force scene start là Bootstrap.
+    /// Lưu ý: manager trong Bootstrap Awake trễ 1 frame so với object của scene gameplay,
+    /// nên tránh gọi Manager.Instance ngay trong Awake/Start của scene gameplay ở frame đầu.
     /// </summary>
     public static class CoreBootstrap
     {

@@ -54,18 +54,17 @@ com.uyi.core/
 │   ├── Singleton/      UyiCore.Patterns       SingletonBehaviour base
 │   ├── Observer/       UyiCore.Observer       Event bus typed
 │   ├── Pooling/        UyiCore.Pooling        GenericPool + PooledManager
-│   ├── Character/      UyiCore.Character      CharacterRoot + Module pattern
 │   ├── Audio/          UyiCore.Audio          SFX pool + BGM crossfade
-│   ├── UI/             UyiCore.UI             Popup manager + UIButton
-│   ├── GameFlow/       UyiCore.GameFlow       Generic Finite State Machine
+│   ├── UI/             UyiCore.UI             Popup manager
+│   ├── FSM/            UyiCore.FSM            Generic Finite State Machine
 │   ├── Scene/          UyiCore.Scenes         Bootstrap + Additive scene loader
 │   ├── Save/           UyiCore.Save           JSON file save với slot
-│   ├── BT/             UyiCore.BT             Behavior Tree fluent builder
+│   ├── BT/             UyiCore.BT             Behavior Tree fluent builder + data-driven (SO/JSON)
 │   ├── Timer/          UyiCore.Timing         Schedule callbacks (static API)
-│   └── FloatingText/   UyiCore.FloatingText   Damage number + notification pool
+│   ├── Tween/          UyiCore.Tweening       Tween engine + UI tween helpers + easing
+│   └── UIEffect/       UyiCore.UIEffect       UI effect preset (SO) + component kéo-thả
 └── Editor/
-    ├── UyiCore.Editor.asmdef
-    └── BootstrapEditorPlayMode.cs    UyiCore.EditorTools (force Bootstrap khi Play)
+    └── UyiCore.Editor.asmdef         UyiCore.EditorTools (BT/UI importer + Tools menu)
 ```
 
 Singleton dùng pattern self-type. Tất cả module dùng C# generic để type-safe.
@@ -202,49 +201,7 @@ BulletManager.Instance.Return("fireball", bullet);
 
 ---
 
-## 4. Character — `UyiCore.Character`
-
-Pattern composition cho character: 1 `CharacterRoot` chứa nhiều `CharacterModule`.
-Mỗi module là 1 MonoBehaviour gắn cùng GameObject (hoặc child), tự logic riêng.
-
-### Files
-- `CharacterRoot.cs` — cache reference (Rigidbody2D, Animator, Collider, SpriteRenderer) + collect/tick modules
-- `CharacterModule.cs` — base abstract: `Initialize`, `OnTick`, `OnFixedTick`
-
-### Pattern
-
-```csharp
-// Define module
-public class PlayerMovement : CharacterModule {
-    public override void OnTick(float dt) {
-        var input = Input.GetAxis("Horizontal");
-        Owner.Rigidbody.velocity = new Vector2(input * 5, Owner.Rigidbody.velocity.y);
-    }
-}
-
-public class PlayerHealth : CharacterModule {
-    private int _hp = 100;
-    public void TakeDamage(int dmg) {
-        _hp -= dmg;
-        Observer<GameEvent>.Emit(GameEvent.PlayerHpChanged, new PlayerHpChangedData(_hp, 100));
-    }
-}
-
-// Setup: gắn CharacterRoot + n module vào GameObject. Root tự discover + Init module ở Awake.
-
-// Cross-module access:
-var hp = root.GetModule<PlayerHealth>();
-hp.TakeDamage(10);
-```
-
-### Đặc điểm
-- Module decoupled — không depend nhau qua reference cứng, chỉ qua `Owner.GetModule<T>()`.
-- Root forward Tick/FixedTick → module không tự `Update` (centralized loop, dễ disable nhóm).
-- `ReinitializeModules()` để reset hết sau respawn.
-
----
-
-## 5. Audio — `UyiCore.Audio`
+## 4. Audio — `UyiCore.Audio`
 
 `AudioManager` singleton. SFX pool nhiều AudioSource, BGM 2-source crossfade.
 Config qua `AudioDatabase` ScriptableObject (clip + volume + pitch range + loop).
@@ -277,14 +234,13 @@ AudioManager.Instance.SetBgmVolume(0.7f);
 
 ---
 
-## 6. UI — `UyiCore.UI`
+## 5. UI — `UyiCore.UI`
 
 `PopupManager` quản popup theo id, instance cache để show/hide nhanh.
 
 ### Files
 - `PopupDatabase.cs` — SO map id → prefab
 - `PopupManager.cs` — singleton
-- `UIButton.cs` — wrapper cho Button (optional, có tween/scale on click)
 
 ### API
 
@@ -293,15 +249,20 @@ PopupManager.Instance.Show("pause");
 PopupManager.Instance.Hide("pause");
 PopupManager.Instance.HideAll();
 bool open = PopupManager.Instance.IsOpen("pause");
+
+// Giải phóng bộ nhớ thật sự (mất state, Show sau tạo mới)
+PopupManager.Instance.Free("pause");
+PopupManager.Instance.FreeAll();
 ```
 
 ### Đặc điểm
+- **Pooled**: `Show`/`Hide` = SetActive true/false, instance cache lại → **giữ nguyên state** (input, scroll...) + không GC churn.
 - Show 2 lần cùng id → bring-to-front (SetAsLastSibling), không spawn duplicate.
-- Hide = Destroy GameObject. Nếu cần pool, refactor sau.
+- `Free` / `FreeAll` để Destroy thật khi cần giải phóng bộ nhớ.
 
 ---
 
-## 7. GameFlow — `UyiCore.GameFlow`
+## 6. FSM — `UyiCore.FSM`
 
 Finite State Machine generic, non-Mono. Dùng cho game state, AI, character action.
 
@@ -361,7 +322,7 @@ if (Fsm.IsIn<PausedState>()) ...
 
 ---
 
-## 8. Scenes — `UyiCore.Scenes`
+## 7. Scenes — `UyiCore.Scenes`
 
 Scene loading async với fade transition + loading screen. Pattern Bootstrap + Additive.
 
@@ -369,8 +330,9 @@ Scene loading async với fade transition + loading screen. Pattern Bootstrap + 
 - `SceneLoader.cs` — singleton chính
 - `SceneTransition.cs` — fade overlay (auto-create runtime hoặc prefab override)
 - `LoadOptions.cs` — struct config 1 lần load
-- `SceneLoadData.cs` — payload Observer (`SceneLoadStartedData`, `ProgressData`, `CompletedData`)
-- `CoreBootstrap.cs` — runtime ensure + editor playModeStartScene
+- `SceneLoadData.cs` — payload event (`SceneLoadStartedData`, `ProgressData`, `CompletedData`)
+- `LoadingScreen.cs` — helper gắn trong scene Loading: tự cập nhật bar theo progress
+- `CoreBootstrap.cs` — runtime ensure: tự load Bootstrap additive nếu scene khởi động chưa có nó
 
 ### Pattern Bootstrap + Additive
 
@@ -402,9 +364,9 @@ Observer<GameEvent>.AddListener<SceneLoadProgressData>(
 
 ### Setup Unity
 1. Tạo scene `Bootstrap` chứa tất cả manager + `SceneLoader` component.
-2. Tạo scene `Loading` chứa UI bar + script subscribe Observer progress event.
+2. Tạo scene `Loading` chứa UI bar → gắn `LoadingScreen`, kéo Image (Type = Filled) vào `_bar` (tự cập nhật, khỏi viết code). Muốn hiện % thì wire event `_onProgress`.
 3. Build Settings: Bootstrap index 0, các scene khác sau.
-4. Editor: `BootstrapEditorPlayMode` tự force Play mode bắt đầu từ Bootstrap.
+4. Bấm Play ở scene nào cũng được — `CoreBootstrap` (runtime) tự load Bootstrap additive nếu scene hiện tại chưa có nó (cần Bootstrap nằm trong Build Settings). Lưu ý: manager Awake trễ 1 frame so với scene gameplay.
 
 ### Lưu ý
 - Bootstrap không bao giờ unload → singleton sống luôn, không cần DontDestroyOnLoad.
@@ -412,7 +374,7 @@ Observer<GameEvent>.AddListener<SceneLoadProgressData>(
 
 ---
 
-## 9. Save — `UyiCore.Save`
+## 8. Save — `UyiCore.Save`
 
 JSON file-based save với multi-slot. Static API, không cần GameObject.
 
@@ -487,7 +449,7 @@ SaveSystem.Configure(new SaveOptions {
 
 ---
 
-## 10. BT — `UyiCore.BT`
+## 9. BT — `UyiCore.BT`
 
 Behavior Tree generic + fluent builder. Cho enemy AI / boss / NPC.
 
@@ -561,9 +523,55 @@ var pos = _bt.Blackboard.Get<Vector3>("lastKnownPos");
 - **TickInterval** — optimize enemy xa player.
 - Skip phase 1: service node, visual debug, random selector.
 
+### Data-driven (SO + JSON) — `UyiCore.BT.Data`
+
+Ngoài fluent builder (code-first), BT còn dựng được từ **ScriptableObject** — thiết kế cây bằng tool ngoài (HTML) → export JSON → import ra SO. Engine runtime giữ nguyên; đây chỉ là tầng data build lên trên.
+
+**Files** (`Runtime/BT/Data/`)
+- `BTNodeData.cs` — node dạng data (`id/type/ref/children/params`) + `BTParams` (đọc param có kiểu, parse InvariantCulture) + `BTGraphJson` (DTO khớp JSON)
+- `BehaviorTreeAsset.cs` — SO chứa cây + `FromJson()` + `Validate()`
+- `BTRegistry.cs` — map `ref` (string) → hành vi C# thật (vì lambda không serialize được)
+- `BehaviorTreeCompiler.cs` — dịch asset → cây `BehaviorTree<TOwner>` runtime
+- `Editor/BehaviorTreeJsonImporter.cs` — `ScriptedImporter` cho file `*.btjson`
+
+**Schema JSON** (JsonUtility-friendly: `children`/`params` để dạng mảng)
+
+```json
+{ "name":"GruntAI", "root":"root",
+  "nodes":[
+    {"id":"root","type":"Selector","children":["flee","patrol"]},
+    {"id":"flee","type":"Sequence","children":["c","d"]},
+    {"id":"c","type":"Condition","ref":"HpBelow","params":[{"key":"threshold","value":"0.2"}]},
+    {"id":"d","type":"Do","ref":"Flee"},
+    {"id":"patrol","type":"Do","ref":"Patrol"}
+  ]}
+```
+
+`type` cấu trúc: `Selector/Sequence/Parallel/Inverter/Repeater/Cooldown/UntilSuccess/UntilFailure/Wait/Succeed/Fail`.
+`type` leaf bind registry: `Action` (trả NodeStatus) · `Condition` (bool) · `Do` (chạy rồi Success) — dùng `ref` trỏ id đăng ký.
+
+**Dùng**
+
+```csharp
+// 1. Registry map ref → code (khai 1 lần cho mỗi loại owner)
+var reg = new BTRegistry<Enemy>()
+    .Condition("HpBelow", (e, p) => e.HpPercent < p.GetFloat("threshold", 0.2f))
+    .Do("Flee",   e => e.Flee())
+    .Do("Patrol", e => e.Patrol())
+    .Action("Chase", e => e.MoveTo(e.Player.position) ? NodeStatus.Success : NodeStatus.Running);
+
+// 2. Compile asset → cây runtime (mỗi enemy 1 cây state riêng)
+_bt = BehaviorTreeCompiler.Compile(_treeAsset, this, reg);
+void Update() => _bt.Tick(Time.deltaTime);
+```
+
+**Workflow**: thiết kế bằng tool HTML → export `EnemyAI.btjson` → thả vào `Assets/` (auto ra SO) → kéo SO vào field owner. Ref chưa đăng ký → node fail + log rõ. Sample: `Samples~/DataDrivenBT/`.
+
+> Fluent builder và SO **cùng biên dịch ra 1 cây runtime** — dùng song song thoải mái.
+
 ---
 
-## 11. Timer — `UyiCore.Timing`
+## 10. Timer — `UyiCore.Timing`
 
 Schedule callback theo thời gian. Static API, runner singleton auto-spawn.
 
@@ -603,60 +611,63 @@ int n = Timer.ActiveCount;
 
 ---
 
-## 12. FloatingText — `UyiCore.FloatingText`
+## 11. Tween — `UyiCore.Tweening`
 
-Pool damage number + pickup notification. World-space text với motion + fade.
+Tween engine tối giản (generic) + helper cho UI, có easing. Static API kiểu Timer.
 
 ### Files
-- `FloatingTextStyle.cs` — preset struct
-- `FloatingTextItem.cs` — MonoBehaviour 1 item (motion + alpha curve + scale curve)
-- `FloatingTextService.cs` — singleton pool + static API
-
-### Setup Unity (1 lần)
-1. Tạo prefab `FloatingTextItem.prefab`:
-   - Root: RectTransform + `FloatingTextItem` + `CanvasGroup`
-   - Child hoặc cùng: `TextMeshProUGUI`
-   - Inspector: gán field `_label` (TMP) + `_group` (CanvasGroup)
-2. Thêm `FloatingTextService` component vào Bootstrap (hoặc gameplay scene).
-3. Kéo prefab vào field `_prefab`. Tweak `_canvasScale` theo pixel-art scale (~0.01-0.05).
+- `Ease.cs` — enum `Ease` + `Easing.Evaluate` (Quad/Cubic/Back/Bounce/Elastic/Sine...)
+- `Tween.cs` — `Tween.To(dur, onUpdate, ease...)` + `TweenHandle`, runner auto-spawn, tự cancel khi owner destroy
+- `UITween.cs` — extension: `Fade` / `ScaleTo` / `MoveAnchored` / `RotateTo` / `ColorTo` / `FillTo` / `Punch`
 
 ### API
-
 ```csharp
-// Generic
-FloatingTextService.Show("100", hitPos);
-FloatingTextService.Show("MISS", hitPos, FloatingTextStyle.Crit);
+rect.ScaleTo(1f, .2f, Ease.OutBack);       // pop
+group.Fade(0f, .3f);                        // fade CanvasGroup
+hpBar.FillTo(hp01, .25f, Ease.OutCubic);    // thanh máu chạy mượt
+rect.Punch(1.15f, .25f);                    // nảy 1 phát (click/hit)
 
-// Shortcut
-FloatingTextService.ShowDamage(100, enemy.transform.position);
-FloatingTextService.ShowDamage(250, enemy.transform.position, crit: true);
-FloatingTextService.ShowHeal(50, player.transform.position);
-FloatingTextService.ShowPickup("+10 Coins", pickupPos);
-
-// Custom style
-var style = new FloatingTextStyle {
-    color = Color.cyan,
-    fontSize = 6f,
-    velocity = new Vector2(0, 3f),
-    lifetime = 1.5f,
-    spawnJitter = new Vector2(0.3f, 0),
-};
-FloatingTextService.Show("Combo x3", pos, style);
+// tổng quát — dùng cho cả gameplay
+Tween.To(1f, t => enemy.localScale = Vector3.LerpUnclamped(a, b, t), Ease.OutBack, owner: enemy);
 ```
 
 ### Đặc điểm
-- **World-space canvas auto-create** — không cần setup canvas thủ công.
-- **Pool prewarm + maxConcurrent** — evict oldest khi quá tải.
-- **Animation curve cho alpha + scale** — designer tweak trong inspector item prefab.
-- **Spawn jitter** — 2 damage cùng frame không chồng.
-- **Preset style sẵn**: Default / Damage / Crit / Heal / Pickup.
+- **`unscaled = true` mặc định** cho UI helper (chạy cả khi timeScale = 0).
+- **Handle** để `Cancel()` / `Complete()`; **tự huỷ** khi target GameObject destroy (fake-null).
+- **One-shot**, không loop (giữ core nhỏ). Ease overshoot (OutBack/Elastic) → dùng `LerpUnclamped`.
+- Generic — không khoá vào UI.
+
+---
+
+## 12. UIEffect — `UyiCore.UIEffect`
+
+Hiệu ứng UI theo pattern **tách WHAT / HOW / WHEN**: kéo component + chọn preset SO, khỏi sửa code UI.
+
+### Files
+- `UiEffectPreset.cs` — SO "cảm giác" (kind + duration + ease + tham số). Đổi 1 SO → cả game đổi feel
+- `UiEffectPlayer.cs` — component kéo lên UI → chơi preset khi trigger (OnEnable/OnStart/Manual), target auto = chính nó
+- `ButtonFeedback.cs` — component kéo lên nút → nhấn thu nhỏ / thả bung nảy
+
+### Dùng
+1. Tạo `UiEffectPreset` (Create ▸ UyiCore ▸ UI Effect Preset): kind = Scale, ease = OutBack → "PopupIn"
+2. Kéo `UiEffectPlayer` lên panel, gán preset → tự chơi khi bật (khỏi code)
+3. Kéo `ButtonFeedback` lên các nút → có feedback bấm ngay
+
+```csharp
+GetComponent<UiEffectPlayer>().Play();   // hoặc chơi bằng code
+```
+
+### Đặc điểm
+- **Non-invasive**: gắn bằng component, không đụng logic UI.
+- **Preset SO** = feel đồng bộ + tune 1 chỗ.
+- Dựa hết trên **Tween** (tầng nền) — cancel/auto-huỷ theo.
 
 ---
 
 ## Patterns chung
 
 ### Singleton vs Static
-- **Singleton MonoBehaviour** (Audio, Popup, SceneLoader, FloatingText): cần serialize field trong inspector (database, prefab), sống trong Bootstrap.
+- **Singleton MonoBehaviour** (Audio, Popup, SceneLoader): cần serialize field trong inspector (database, prefab), sống trong Bootstrap.
 - **Static API + auto-spawn runner** (Timer): không cần config, plug-and-play.
 - **Static thuần** (Observer, SaveSystem): không stateful runtime, dùng được từ Editor script.
 
@@ -666,13 +677,13 @@ FloatingTextService.Show("Combo x3", pos, style);
 - Best practice: State.OnEnter Emit Observer event để loose-coupled UI/analytics react.
 
 ### Pool vs Instantiate
-- Spawn lặp đi lặp lại (bullet, enemy, vfx, floating text) → pool.
+- Spawn lặp đi lặp lại (bullet, enemy, vfx) → pool.
 - Một lần (boss, level prop) → Instantiate.
 
 ### Bootstrap pattern
 - Scene `Bootstrap` chứa tất cả manager — không bao giờ unload.
 - Các scene khác load Additive chồng lên.
-- Editor convenience: `BootstrapEditorPlayMode` force Play start từ Bootstrap.
+- Bấm Play ở scene nào cũng được: `CoreBootstrap` (runtime) tự load Bootstrap additive nếu thiếu.
 
 ---
 
@@ -680,11 +691,11 @@ FloatingTextService.Show("Combo x3", pos, style);
 
 1. Copy thư mục `Core/` qua project mới.
 2. Module độc lập gần như hoàn toàn — chỉ cần `Singleton/` cho các module có singleton, `Observer/` cho event-emitting module.
-3. Tạo scene `Bootstrap` + setup manager prefab (Audio, Popup, SceneLoader, FloatingText) — kéo database SO + prefab vào.
+3. Tạo scene `Bootstrap` + setup manager prefab (Audio, Popup, SceneLoader) — kéo database SO + prefab vào.
 4. Tạo `GameEvent` enum + payload struct riêng cho project mới (xóa cái cũ).
 5. Định nghĩa `SaveData` class theo nhu cầu game.
 6. Dùng FSM / BT cho gameplay logic.
 
 Modules **không phụ thuộc gì khác**: Save, Timer, Pooling (core), BT.
-Modules **phụ thuộc Singleton**: Audio, Popup, SceneLoader, FloatingText, PooledManager.
+Modules **phụ thuộc Singleton**: Audio, Popup, SceneLoader, PooledManager.
 Modules **phụ thuộc Observer**: SceneLoader (emit progress), GameEvent (project-specific).

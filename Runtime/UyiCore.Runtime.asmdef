@@ -1,9 +1,7 @@
 {
     "name": "UyiCore.Runtime",
     "rootNamespace": "UyiCore",
-    "references": [
-        "Unity.TextMeshPro"
-    ],
+    "references": [],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,

@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UyiCore · UI Layout Editor</title>
+<style>
+  :root{
+    --bg:#0f1219; --panel:#161b24; --panel2:#1c2330; --line:#2a3341;
+    --ink:#e7ecf3; --muted:#8b95a6; --faint:#5d6675;
+    --accent:#2dd4bf; --accent2:#63e8d8; --sel:#f2c14e; --danger:#e0654f;
+    --stage-void:#0a0d13;
+    --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:13px;overflow:hidden;
+    display:grid;grid-template-rows:auto 1fr;grid-template-columns:220px 1fr 264px;
+    grid-template-areas:"top top top" "layers stage insp"}
+  button{font-family:inherit;font-size:12px;color:var(--ink);background:var(--panel2);border:1px solid var(--line);
+    border-radius:7px;padding:6px 10px;cursor:pointer}
+  button:hover{background:#232c3b;border-color:#3a465a}
+  button.primary{background:var(--accent);color:#08201d;border-color:transparent;font-weight:600}
+  button.on{background:var(--accent);color:#08201d;border-color:transparent;font-weight:600}
+  input,select{font-family:inherit;font-size:12px;color:var(--ink);background:#0c0f15;border:1px solid var(--line);
+    border-radius:6px;padding:5px 7px;width:100%}
+  input:focus,select:focus{outline:none;border-color:var(--accent)}
+  label{display:block;font-size:11px;color:var(--muted);margin:9px 0 3px}
+
+  #top{grid-area:top;display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--panel);
+    border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .brand{font-family:var(--mono);font-weight:700;font-size:14px;white-space:nowrap}
+  .brand b{color:var(--accent)}
+  .tname{max-width:150px}
+  .sep{width:1px;height:22px;background:var(--line);margin:0 3px}
+  .spring{flex:1}
+  .wh{width:64px;text-align:center;font-family:var(--mono)}
+  .tool{padding:6px 11px}
+  #btnHelp{font-weight:700;min-width:30px}
+
+  /* layers */
+  #layers{grid-area:layers;background:var(--panel);border-right:1px solid var(--line);overflow-y:auto;padding:10px}
+  #layers h3{margin:0 0 8px;font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--faint)}
+  .lrow{display:flex;align-items:center;gap:5px;padding:4px 6px;border-radius:6px;cursor:pointer;font-size:12px}
+  .lrow:hover{background:var(--panel2)}
+  .lrow.sel{background:rgba(45,212,191,.14);outline:1px solid rgba(45,212,191,.4)}
+  .lrow .sw{width:11px;height:11px;border-radius:3px;flex:none;border:1px solid var(--line)}
+  .lrow .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lrow .mini{font-size:10px;color:var(--faint);padding:2px 5px;border-radius:4px}
+  .lrow .mini:hover{color:var(--ink);background:var(--line)}
+
+  /* stage */
+  #stageWrap{grid-area:stage;position:relative;overflow:hidden;background:var(--stage-void);cursor:default}
+  #stageWrap.pan{cursor:grabbing}
+  #stageWrap.draw{cursor:crosshair}
+  #stage{position:absolute;top:0;left:0;transform-origin:0 0;box-shadow:0 0 0 1px var(--line),0 20px 60px -20px #000}
+  .uinode{position:absolute;overflow:visible}
+  .uinode.container{outline:1px dashed rgba(139,149,166,.4);outline-offset:-1px}
+  .uinode.hasSprite{background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.06) 0 8px,transparent 8px 16px)}
+  .uinode.sel{outline:calc(2px / var(--s)) solid var(--sel);outline-offset:0}
+  .uinode .lbl{position:absolute;top:calc(2px / var(--s));left:calc(4px / var(--s));font-size:calc(11px / var(--s));
+    font-family:var(--mono);color:rgba(255,255,255,.7);text-shadow:0 1px 2px rgba(0,0,0,.6);pointer-events:none;white-space:nowrap}
+  .uinode .txt{position:absolute;inset:0;display:flex;overflow:hidden;white-space:pre-wrap;word-break:break-word;line-height:1.15;pointer-events:none;font-family:var(--sans);padding:calc(2px / var(--s))}
+  .handle{position:absolute;width:calc(11px / var(--s));height:calc(11px / var(--s));background:var(--sel);
+    border:calc(1.5px / var(--s)) solid #1a1200;border-radius:calc(2px / var(--s))}
+  #tmpRect{position:absolute;border:calc(1.5px / var(--s)) dashed var(--accent);background:rgba(45,212,191,.12);pointer-events:none;z-index:10;display:none}
+  #guideLayer{position:absolute;inset:0;pointer-events:none;z-index:9}
+  .guide-v{position:absolute;top:0;height:100%;width:calc(1px / var(--s));background:#ff4d7d}
+  .guide-h{position:absolute;left:0;width:100%;height:calc(1px / var(--s));background:#ff4d7d}
+  .alignbar{display:flex;gap:4px;margin-top:4px}
+  .alignbar button{flex:1;padding:6px 0;font-size:14px}
+  .stbadge{position:absolute;bottom:8px;left:8px;font-family:var(--mono);font-size:11px;color:var(--faint);
+    background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:3px 8px;pointer-events:none}
+
+  /* inspector */
+  #inspector{grid-area:insp;background:var(--panel);border-left:1px solid var(--line);overflow-y:auto;padding:12px}
+  #inspector h3{margin:0 0 4px;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--faint)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  .fieldrow{display:flex;align-items:center;gap:8px;margin-top:9px}
+  .fieldrow label{margin:0;flex:none;width:44px}
+  .colorrow{display:flex;gap:8px;align-items:center;margin-top:4px}
+  .colorrow input[type=color]{width:44px;height:30px;padding:2px;cursor:pointer}
+  .hint{color:var(--faint);font-size:11px;line-height:1.5;margin-top:6px}
+
+  /* modal + help + toast (chung) */
+  .overlay{position:fixed;inset:0;background:rgba(6,9,14,.76);display:none;align-items:center;justify-content:center;z-index:60}
+  .overlay.show{display:flex}
+  .sheet{background:var(--panel);border:1px solid var(--line);border-radius:12px;width:min(720px,94vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden}
+  .sheet-h{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+  .sheet-h b{font-family:var(--mono)}
+  .sheet-b{padding:14px 16px;overflow:auto}
+  .sheet-b textarea{width:100%;min-height:300px;font-family:var(--mono);font-size:11px;line-height:1.5;
+    background:#0b0e14;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:10px}
+  .sheet-f{padding:12px 16px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end}
+  #toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--line);
+    border-radius:8px;padding:8px 14px;font-size:12px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:70}
+  #toast.show{opacity:1}
+  .guide{padding:18px 22px}
+  .guide h2{font-family:var(--mono);font-size:13px;color:var(--accent2);margin:22px 0 8px;padding-bottom:5px;border-bottom:1px solid var(--line)}
+  .guide h2:first-child{margin-top:0}
+  .guide p{margin:6px 0;line-height:1.6} .guide ul{margin:6px 0;padding-left:20px} .guide li{margin:5px 0;line-height:1.55}
+  .guide b{color:var(--accent2)} .guide code{font-family:var(--mono);font-size:.86em;background:var(--panel2);border:1px solid var(--line);padding:1px 5px;border-radius:4px}
+  .guide kbd{font-family:var(--mono);font-size:.82em;background:#0b0e14;border:1px solid var(--line);border-radius:4px;padding:1px 6px}
+  .guide pre{background:#0b0e14;border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;font-family:var(--mono);font-size:11.5px;line-height:1.6;color:#cdd6e3;margin:9px 0}
+</style>
+</head>
+<body>
+  <div id="top">
+    <div class="brand">Uyi<b>UI</b></div>
+    <input class="tname" id="uiName" value="MainMenu" title="Tên layout / prefab">
+    <div class="sep"></div>
+    <label style="margin:0;color:var(--faint)">Canvas</label>
+    <input class="wh" id="cw" value="1080" title="Canvas width"><span style="color:var(--faint)">×</span>
+    <input class="wh" id="ch" value="1920" title="Canvas height">
+    <select id="preset" style="width:130px" title="Preset">
+      <option value="">preset…</option>
+      <option value="1080,1920">1080×1920 dọc</option>
+      <option value="1920,1080">1920×1080 ngang</option>
+      <option value="1080,1080">1080×1080 vuông</option>
+      <option value="1440,3120">1440×3120</option>
+    </select>
+    <div class="sep"></div>
+    <button class="tool on" id="toolMove" title="V (di chuyển)">✥ Move</button>
+    <button class="tool" id="toolDraw" title="B (vẽ khối)">✎ Draw</button>
+    <button id="btnAdd" title="Thêm khối vào node đang chọn">＋ Block</button>
+    <button id="btnAddText" title="Thêm text">＋ Text</button>
+    <button id="btnFit" title="Vừa khung">Fit</button>
+    <div class="sep"></div>
+    <button class="tool on" id="btnSnap" title="Snap thông minh (giữ Alt để tạm tắt)">⤢ Snap</button>
+    <button class="tool" id="btnGrid" title="Bật lưới">▦ Grid</button>
+    <input id="gridSize" value="10" title="Bước lưới (px)" style="width:50px;text-align:center;font-family:var(--mono)">
+    <div class="spring"></div>
+    <button id="btnNew">New</button>
+    <button id="btnOpen">Open</button>
+    <button class="primary" id="btnExport">Export .uijson</button>
+    <button id="btnHelp" title="Hướng dẫn">?</button>
+    <input type="file" id="fileInput" accept=".uijson,.json,application/json" hidden>
+  </div>
+
+  <div id="layers"><h3>Layers</h3><div id="layerTree"></div></div>
+
+  <div id="stageWrap">
+    <div id="stage"><div id="guideLayer"></div><div id="tmpRect"></div></div>
+    <div class="stbadge" id="stBadge"></div>
+  </div>
+
+  <div id="inspector"></div>
+
+  <!-- Export/Import modal -->
+  <div class="overlay" id="modal"><div class="sheet">
+    <div class="sheet-h"><b id="modalTitle">JSON</b><button id="modalClose">✕</button></div>
+    <div class="sheet-b"><textarea id="modalText" spellcheck="false"></textarea></div>
+    <div class="sheet-f" id="modalFoot"></div>
+  </div></div>
+
+  <!-- Help -->
+  <div class="overlay" id="help"><div class="sheet">
+    <div class="sheet-h"><b>Hướng dẫn — UyiCore UI Layout Editor</b><button id="helpClose">✕</button></div>
+    <div class="sheet-b"><div class="guide">
+      <p class="hint" style="margin:0 0 6px">Dựng layout UI kéo-thả → export <code>.uijson</code> → Unity dựng prefab UGUI (Image). WYSIWYG: thấy sao ra vậy ở đúng độ phân giải canvas.</p>
+      <h2>1 · Thao tác</h2>
+      <ul>
+        <li><b>Move</b> (mặc định): kéo khối = di chuyển · kéo nền = pan · lăn chuột = zoom · <b>Fit</b> = vừa khung</li>
+        <li><b>Draw</b>: kéo trên 1 khối/nền để <b>vẽ khối con</b> bên trong nó</li>
+        <li><b>＋ Block</b> / <b>＋ Text</b>: thêm khối Image / khối chữ vào node đang chọn. Đổi Box↔Text ở Inspector.</li>
+        <li>Kéo <b>ô vuông vàng</b> ở mép = resize · <kbd>Del</kbd> = xoá khối đang chọn</li>
+        <li>Click khối = chọn · click nền = chọn root (background)</li>
+        <li><b>Snap</b>: kéo/resize gần mép hoặc tâm của cha / khối anh em → tự dính, hiện đường gióng đỏ. Giữ <kbd>Alt</kbd> tạm tắt.</li>
+        <li><b>Grid</b>: bật lưới + đặt bước px để dính lưới. <b>Căn trong cha</b> (Inspector) = căn trái/giữa/phải/trên/dưới 1 click.</li>
+        <li><b>Phím tắt</b>: <kbd>Ctrl+Z</kbd> undo · <kbd>Ctrl+Shift+Z</kbd>/<kbd>Ctrl+Y</kbd> redo · <kbd>Ctrl+D</kbd> nhân đôi · <kbd>Ctrl+C</kbd>/<kbd>Ctrl+V</kbd> copy/dán · <kbd>Del</kbd> xoá · <kbd>←↑↓→</kbd> nudge 1px (Shift = 10px) · <kbd>V</kbd>/<kbd>B</kbd> Move/Draw.</li>
+      </ul>
+      <h2>2 · Inspector (phải)</h2>
+      <ul>
+        <li><b>Name</b> = tên GameObject trong prefab</li>
+        <li><b>X/Y/W/H</b> (px) — toạ độ tương đối góc trên-trái của cha</li>
+        <li><b>Fill</b>: bật = có Image (màu + alpha). Tắt = container rỗng (chỉ RectTransform)</li>
+        <li><b>Sprite</b>: tên/path sprite trong Unity (optional) — resolve khi build</li>
+        <li><b>Parent</b>: đổi cha (giữ nguyên vị trí trên màn hình)</li>
+      </ul>
+      <h2>3 · Thứ tự &amp; lồng nhau</h2>
+      <p>Layers bên trái = cây phân cấp. Con sau vẽ <b>đè lên</b> con trước (z-order). Dùng ↑↓ trong Layers để đổi thứ tự.</p>
+      <h2>4 · Áp dụng vào Unity</h2>
+      <p><b>1.</b> Export → file <code>MainMenu.uijson</code>.</p>
+      <p><b>2.</b> Trong Unity: <code>Tools ▸ UyiCore ▸ Build UI Prefab from JSON…</code> → chọn file → chọn nơi lưu → ra <code>.prefab</code>.</p>
+      <p><b>3.</b> Kéo prefab vào 1 <b>Canvas</b>, set Canvas Scaler = <i>Scale With Screen Size</i>, Reference Resolution = <b>canvasW × canvasH</b> để khớp đúng thiết kế.</p>
+<pre>Node → GameObject + RectTransform (+ Image nếu có Fill/Sprite)
+Vị trí: anchor góc trên-trái, anchoredPosition = (x, -y), sizeDelta = (w, h)
+Root : stretch-fill → phủ full Canvas</pre>
+      <ul>
+        <li>Sprite chưa thấy trong project → log warning, vẫn tạo Image màu.</li>
+        <li>Toạ độ tuyệt đối — muốn responsive thì chỉnh anchor lại trong Unity.</li>
+      </ul>
+    </div></div>
+    <div class="sheet-f"><button class="primary" id="helpOk">Đã hiểu</button></div>
+  </div></div>
+
+  <div id="toast"></div>
+
+<script>
+/* ============================ State ============================ */
+const LS="uyiui.autosave.v1";
+let state={ name:"MainMenu", canvasW:1080, canvasH:1920, rootId:"root", nodes:{} };
+let selId=null, counter=0, tool="move";
+let snapOn=true, gridOn=false, grid=10;
+let clipboard=null;
+let view={x:0,y:0,s:0.3};
+
+const stage=document.getElementById("stage"), wrap=document.getElementById("stageWrap"),
+      tmpRect=document.getElementById("tmpRect"), inspector=document.getElementById("inspector"),
+      layerTree=document.getElementById("layerTree"), stBadge=document.getElementById("stBadge"),
+      nameEl=document.getElementById("uiName"), cwEl=document.getElementById("cw"), chEl=document.getElementById("ch");
+
+const uid=()=>{let id;do{id="u"+(counter++);}while(state.nodes[id]);return id;};
+const esc=s=>String(s).replace(/[<>&"]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c]));
+function toast(m){const t=document.getElementById("toast");t.textContent=m;t.classList.add("show");
+  clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove("show"),1500);}
+
+const HANDLES=[["nw",-1,-1],["n",0,-1],["ne",1,-1],["e",1,0],["se",1,1],["s",0,1],["sw",-1,1],["w",-1,0]];
+const HPOS={nw:[0,0],n:[.5,0],ne:[1,0],e:[1,.5],se:[1,1],s:[.5,1],sw:[0,1],w:[0,.5]};
+
+/* ============================ Tree ops ============================ */
+function childrenOf(id){return state.nodes[id]?state.nodes[id].children:[];}
+function addChild(parentId,x,y,w,h,kind){
+  const id=uid(); const isText=kind==="text";
+  state.nodes[id]={id,name:"",x:Math.round(x),y:Math.round(y),w:Math.round(w),h:Math.round(h),
+    color:isText?"#ffffff":"#2dd4bf",alpha:255,fill:!isText,sprite:"",
+    kind:isText?"text":"box",text:isText?"Text":"",fontSize:32,align:"center",valign:"middle",
+    parent:parentId,children:[]};
+  state.nodes[parentId].children.push(id);
+  return id;
+}
+function removeNode(id){
+  if(id===state.rootId)return;
+  const n=state.nodes[id]; if(!n)return;
+  [...n.children].forEach(removeNode);
+  const p=state.nodes[n.parent]; if(p) p.children=p.children.filter(c=>c!==id);
+  delete state.nodes[id];
+  if(selId===id)selId=null;
+}
+function globalPos(id){ let x=0,y=0,c=state.nodes[id];
+  while(c && c.id!==state.rootId){ x+=c.x; y+=c.y; c=state.nodes[c.parent]; } return {x,y}; }
+function descendants(id,acc){ acc.add(id); childrenOf(id).forEach(c=>descendants(c,acc)); return acc; }
+function reparent(id,newParent){
+  if(id===state.rootId||id===newParent)return;
+  if(descendants(id,new Set()).has(newParent))return toast("Không thể cho con làm cha");
+  const n=state.nodes[id], g=globalPos(id), gp=globalPos(newParent);
+  const op=state.nodes[n.parent]; op.children=op.children.filter(c=>c!==id);
+  n.parent=newParent; n.x=Math.round(g.x-gp.x); n.y=Math.round(g.y-gp.y);
+  state.nodes[newParent].children.push(id);
+}
+/* ---- duplicate / copy / paste (kèm cây con) ---- */
+function serializeSubtree(id){ const n=state.nodes[id];
+  return {name:n.name,x:n.x,y:n.y,w:n.w,h:n.h,color:n.color,alpha:n.alpha,fill:n.fill,sprite:n.sprite,
+    kind:n.kind,text:n.text,fontSize:n.fontSize,align:n.align,valign:n.valign,
+    children:n.children.map(serializeSubtree)}; }
+function instantiate(data,parentId,offX,offY){ const id=uid();
+  state.nodes[id]={id,name:data.name,x:Math.round(data.x+offX),y:Math.round(data.y+offY),w:data.w,h:data.h,
+    color:data.color,alpha:data.alpha,fill:data.fill,sprite:data.sprite,
+    kind:data.kind||"box",text:data.text||"",fontSize:data.fontSize||32,align:data.align||"center",valign:data.valign||"middle",
+    parent:parentId,children:[]};
+  state.nodes[parentId].children.push(id);
+  data.children.forEach(c=>instantiate(c,id,0,0));   // con giữ nguyên toạ độ tương đối
+  return id; }
+function duplicateSelected(){ if(!selId||selId===state.rootId)return;
+  const id=instantiate(serializeSubtree(selId), state.nodes[selId].parent, 20,20);
+  render(); select(id); save(); commit(); toast("Đã nhân đôi"); }
+function copySelected(){ if(!selId||selId===state.rootId)return toast("Chọn 1 khối để copy");
+  clipboard=serializeSubtree(selId); toast("Đã copy"); }
+function pasteClipboard(){ if(!clipboard)return toast("Chưa copy gì");
+  const parentId=(selId&&selId!==state.rootId)?state.nodes[selId].parent:state.rootId;
+  const id=instantiate(clipboard,parentId,20,20); render(); select(id); save(); commit(); toast("Đã dán"); }
+
+/* ============================ Render ============================ */
+function applyView(){ stage.style.transform=`translate(${view.x}px,${view.y}px) scale(${view.s})`;
+  stage.style.setProperty("--s",view.s); updateBadge(); }
+function updateBadge(){ if(stBadge) stBadge.textContent=`${state.canvasW}×${state.canvasH}  ·  ${Math.round(view.s*100)}%  ·  ${Object.keys(state.nodes).length-1} khối`; }
+function fit(){
+  const r=wrap.getBoundingClientRect();
+  view.s=Math.min(r.width/state.canvasW, r.height/state.canvasH)*0.9;
+  view.x=(r.width-state.canvasW*view.s)/2; view.y=(r.height-state.canvasH*view.s)/2;
+  applyView();
+}
+function paint(){
+  stage.style.width=state.canvasW+"px"; stage.style.height=state.canvasH+"px";
+  const root=state.nodes[state.rootId];
+  stage.style.backgroundColor=root.fill?colorCss(root):"#1b1e28";
+  if(gridOn){ stage.style.backgroundImage="linear-gradient(rgba(255,255,255,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.06) 1px,transparent 1px)"; stage.style.backgroundSize=grid+"px "+grid+"px"; }
+  else stage.style.backgroundImage="";
+  stage.dataset.id=state.rootId;
+  stage.classList.toggle("sel",selId===state.rootId);
+  [...stage.querySelectorAll(".uinode")].forEach(n=>n.remove());
+  childrenOf(state.rootId).forEach(cid=>renderNode(state.nodes[cid],stage));
+  applyView();
+  renderLayers();
+  stBadge.textContent=`${state.canvasW}×${state.canvasH}  ·  ${Math.round(view.s*100)}%  ·  ${Object.keys(state.nodes).length-1} khối`;
+}
+function render(){ paint(); renderInspector(); }   // render đầy đủ (dùng khi đổi cấu trúc/chọn)
+function colorCss(n){ if(!n.fill)return "transparent";
+  const a=(n.alpha??255); return a>=255?n.color:n.color+a.toString(16).padStart(2,"0"); }
+function renderNode(n,parentEl){
+  const isText=n.kind==="text";
+  const el=document.createElement("div");
+  el.className="uinode"+((!isText&&!n.fill)?" container":"")+((!isText&&n.sprite)?" hasSprite":"")+(n.id===selId?" sel":"");
+  el.dataset.id=n.id;
+  el.style.left=n.x+"px"; el.style.top=n.y+"px"; el.style.width=n.w+"px"; el.style.height=n.h+"px";
+  el.style.background=isText?"transparent":colorCss(n);
+  if(isText){
+    const jc=n.align==="left"?"flex-start":n.align==="right"?"flex-end":"center";
+    const ai=n.valign==="top"?"flex-start":n.valign==="bottom"?"flex-end":"center";
+    el.innerHTML=`<div class="txt" style="justify-content:${jc};align-items:${ai};text-align:${n.align};color:${n.color};font-size:${n.fontSize}px">${esc(n.text)}</div>`;
+  } else {
+    el.innerHTML=`<div class="lbl">${esc((n.name||n.id)+(n.sprite?" 🖼":""))}</div>`;
+  }
+  parentEl.appendChild(el);
+  if(n.id===selId) HANDLES.forEach(([dir])=>{
+    const h=document.createElement("div"); h.className="handle"; h.dataset.dir=dir;
+    const [px,py]=HPOS[dir];
+    h.style.left=`calc(${px*100}% - 5.5px / var(--s))`; h.style.top=`calc(${py*100}% - 5.5px / var(--s))`;
+    el.appendChild(h);
+  });
+  n.children.forEach(cid=>renderNode(state.nodes[cid],el));
+}
+
+/* ============================ Layers ============================ */
+function renderLayers(){
+  layerTree.innerHTML="";
+  const row=(id,depth)=>{
+    const n=state.nodes[id];
+    const r=document.createElement("div"); r.className="lrow"+(id===selId?" sel":"");
+    r.style.paddingLeft=(6+depth*12)+"px";
+    const sw=n.fill?colorCss(n):"transparent";
+    r.innerHTML=`<span class="sw" style="background:${sw}"></span><span class="nm">${esc(n.name||n.id)}</span>`;
+    if(id!==state.rootId){
+      const up=document.createElement("span"); up.className="mini"; up.textContent="↑"; up.title="Lên (z-order)";
+      const dn=document.createElement("span"); dn.className="mini"; dn.textContent="↓";
+      const del=document.createElement("span"); del.className="mini"; del.textContent="✕";
+      up.onclick=e=>{e.stopPropagation();reorder(id,-1);}; dn.onclick=e=>{e.stopPropagation();reorder(id,1);};
+      del.onclick=e=>{e.stopPropagation();removeNode(id);render();save();commit();};
+      r.append(up,dn,del);
+    }
+    r.onclick=()=>{select(id);};
+    layerTree.appendChild(r);
+    n.children.forEach(c=>row(c,depth+1));
+  };
+  row(state.rootId,0);
+}
+function reorder(id,dir){
+  const p=state.nodes[state.nodes[id].parent]; const a=p.children; const i=a.indexOf(id); const j=i+dir;
+  if(j<0||j>=a.length)return; [a[i],a[j]]=[a[j],a[i]]; render(); save();
+}
+
+/* ============================ Inspector ============================ */
+function select(id){ selId=id; render(); }
+function renderInspector(){
+  const n=state.nodes[selId];
+  if(!n){ inspector.innerHTML=`<h3>Chưa chọn</h3><div class="hint">Click 1 khối để sửa, hoặc click nền chọn root.</div>`; return; }
+  if(n.id===state.rootId){
+    inspector.innerHTML=`<h3>Root · background</h3>
+      <label>Tên layout</label><input id="iRootName" value="${esc(state.name)}">
+      <div class="grid2"><div><label>Canvas W</label><input id="iCW" type="number" value="${state.canvasW}"></div>
+      <div><label>Canvas H</label><input id="iCH" type="number" value="${state.canvasH}"></div></div>
+      <label style="margin-top:11px"><input type="checkbox" id="iRFill" ${n.fill?"checked":""} style="width:auto;margin-right:6px">Fill background</label>
+      <div class="colorrow"><input type="color" id="iRColor" value="${n.color}"><input id="iRHex" value="${n.color}" style="font-family:var(--mono)"></div>
+      <div class="hint">Root luôn phủ full canvas (stretch-fill trong Unity).</div>`;
+    document.getElementById("iRootName").addEventListener("input",e=>{state.name=e.target.value;nameEl.value=e.target.value;save();});
+    document.getElementById("iCW").addEventListener("change",e=>{state.canvasW=+e.target.value||1080;cwEl.value=state.canvasW;fit();render();save();});
+    document.getElementById("iCH").addEventListener("change",e=>{state.canvasH=+e.target.value||1920;chEl.value=state.canvasH;fit();render();save();});
+    document.getElementById("iRFill").addEventListener("change",e=>{n.fill=e.target.checked;render();save();});
+    bindColor("iRColor","iRHex",n);
+    return;
+  }
+  const others=Object.keys(state.nodes).filter(x=>x!==n.id && !descendants(n.id,new Set()).has(x));
+  const isText=n.kind==="text";
+  let visual;
+  if(isText){
+    visual=`<label>Nội dung text</label><textarea id="iText" style="width:100%;min-height:52px;background:#0c0f15;color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px;font-family:var(--sans);font-size:12px">${esc(n.text)}</textarea>
+      <div class="grid2" style="margin-top:8px"><div><label>Cỡ chữ (px)</label><input id="iFont" type="number" value="${n.fontSize}"></div>
+      <div><label>Màu chữ</label><div class="colorrow" style="margin-top:0"><input type="color" id="iColor" value="${n.color}"><input id="iHex" value="${n.color}" style="font-family:var(--mono)"></div></div></div>
+      <label>Căn chữ ngang</label><div class="alignbar"><button data-th="left">⬅</button><button data-th="center">↔</button><button data-th="right">➡</button></div>
+      <label>Căn chữ dọc</label><div class="alignbar"><button data-tv="top">⬆</button><button data-tv="middle">↕</button><button data-tv="bottom">⬇</button></div>`;
+  } else {
+    visual=`<label style="margin-top:11px"><input type="checkbox" id="iFill" ${n.fill?"checked":""} style="width:auto;margin-right:6px">Fill (có Image)</label>
+      <div class="colorrow"><input type="color" id="iColor" value="${n.color}"><input id="iHex" value="${n.color}" style="font-family:var(--mono)"></div>
+      <div class="fieldrow"><label>Alpha</label><input id="iAlpha" type="range" min="0" max="255" value="${n.alpha??255}"><span id="iAlphaV" style="width:34px;text-align:right;font-family:var(--mono);color:var(--muted)">${n.alpha??255}</span></div>
+      <label>Sprite (tên/path, optional)</label><input id="iSprite" value="${esc(n.sprite)}" placeholder="vd logo, UI/panel">`;
+  }
+  inspector.innerHTML=`<h3>${isText?"Text":"Khối"} · <span style="font-family:var(--mono);color:var(--ink)">${n.id}</span></h3>
+    <label>Name</label><input id="iName" value="${esc(n.name)}" placeholder="tên GameObject">
+    <label>Loại</label><div class="alignbar" style="margin-top:2px"><button data-kind="box" class="${!isText?"on":""}">▭ Box</button><button data-kind="text" class="${isText?"on":""}">T Text</button></div>
+    <div class="grid2" style="margin-top:8px">
+      <div><label>X</label><input id="iX" type="number" value="${n.x}"></div>
+      <div><label>Y</label><input id="iY" type="number" value="${n.y}"></div>
+      <div><label>W</label><input id="iW" type="number" value="${n.w}"></div>
+      <div><label>H</label><input id="iH" type="number" value="${n.h}"></div>
+    </div>
+    ${visual}
+    <label>Parent</label><select id="iParent">${others.map(o=>`<option value="${o}" ${o===n.parent?"selected":""}>${esc(o===state.rootId?"root":(state.nodes[o].name||o))}</option>`).join("")}</select>
+    <label>Căn trong cha</label>
+    <div class="alignbar"><button data-al="left" title="Sát trái">⬅</button><button data-al="ch" title="Giữa ngang">↔</button><button data-al="right" title="Sát phải">➡</button></div>
+    <div class="alignbar"><button data-al="top" title="Sát trên">⬆</button><button data-al="cv" title="Giữa dọc">↕</button><button data-al="bottom" title="Sát dưới">⬇</button></div>
+    <div style="margin-top:13px"><button id="iDel">Xoá ${isText?"text":"khối"}</button></div>`;
+  const on=(id,ev,fn)=>{const el=document.getElementById(id);if(el)el.addEventListener(ev,fn);};
+  on("iName","input",e=>{n.name=e.target.value;paint();save();});
+  ["X","Y","W","H"].forEach(k=>on("i"+k,"change",e=>{n[k.toLowerCase()]=Math.round(+e.target.value||0);if(k==="W"||k==="H")n[k.toLowerCase()]=Math.max(1,n[k.toLowerCase()]);render();save();}));
+  bindColor("iColor","iHex",n);
+  on("iParent","change",e=>{reparent(n.id,e.target.value);render();save();});
+  on("iDel","click",()=>{removeNode(n.id);render();save();commit();});
+  inspector.querySelectorAll("button[data-al]").forEach(b=>b.onclick=()=>alignNode(n.id,b.dataset.al));
+  inspector.querySelectorAll("button[data-kind]").forEach(b=>b.onclick=()=>{n.kind=b.dataset.kind;if(n.kind==="text"){n.fill=false;if(!n.text)n.text="Text";}render();renderInspector();save();});
+  if(isText){
+    on("iText","input",e=>{n.text=e.target.value;paint();save();});
+    on("iFont","change",e=>{n.fontSize=Math.max(1,Math.round(+e.target.value||1));render();save();});
+    inspector.querySelectorAll("button[data-th]").forEach(b=>b.onclick=()=>{n.align=b.dataset.th;render();save();});
+    inspector.querySelectorAll("button[data-tv]").forEach(b=>b.onclick=()=>{n.valign=b.dataset.tv;render();save();});
+  } else {
+    on("iFill","change",e=>{n.fill=e.target.checked;render();save();});
+    on("iAlpha","input",e=>{n.alpha=+e.target.value;document.getElementById("iAlphaV").textContent=n.alpha;paint();save();});
+    on("iSprite","input",e=>{n.sprite=e.target.value.trim();paint();save();});
+  }
+}
+function bindColor(colorId,hexId,n){
+  const c=document.getElementById(colorId), h=document.getElementById(hexId);
+  c.addEventListener("input",e=>{n.color=e.target.value;h.value=e.target.value;paint();save();});
+  h.addEventListener("change",e=>{let v=e.target.value.trim();if(!/^#/.test(v))v="#"+v;
+    if(/^#[0-9a-fA-F]{6}$/.test(v)){n.color=v;c.value=v;render();save();}else{h.value=n.color;}});
+}
+
+/* ============================ Snap & align ============================ */
+const guideLayer=document.getElementById("guideLayer");
+function drawGuides(gx,gy){ guideLayer.innerHTML="";
+  if(gx!=null){const v=document.createElement("div");v.className="guide-v";v.style.left=gx+"px";guideLayer.appendChild(v);}
+  if(gy!=null){const h=document.createElement("div");h.className="guide-h";h.style.top=gy+"px";guideLayer.appendChild(h);}
+}
+function clearGuides(){ guideLayer.innerHTML=""; }
+function snapTargets(id){
+  const n=state.nodes[id], p=state.nodes[n.parent];
+  const pw=p.id===state.rootId?state.canvasW:p.w, ph=p.id===state.rootId?state.canvasH:p.h;
+  const X=[0,pw/2,pw], Y=[0,ph/2,ph];
+  childrenOf(n.parent).forEach(cid=>{ if(cid===id)return; const s=state.nodes[cid];
+    X.push(s.x,s.x+s.w/2,s.x+s.w); Y.push(s.y,s.y+s.h/2,s.y+s.h); });
+  return {X,Y};
+}
+function nearest(cands,targets,S){ let best=null;
+  targets.forEach(t=>cands.forEach(c=>{const d=t-c;if(Math.abs(d)<=S&&(!best||Math.abs(d)<Math.abs(best.d)))best={d,t};}));
+  return best; }
+function snapMove(id,x,y,noSnap){
+  const n=state.nodes[id],w=n.w,h=n.h; let gx=null,gy=null;
+  if(!noSnap && snapOn){ const {X,Y}=snapTargets(id); const S=6/view.s;
+    const bx=nearest([x,x+w/2,x+w],X,S); if(bx){x+=bx.d;gx=bx.t;} else if(gridOn)x=Math.round(x/grid)*grid;
+    const by=nearest([y,y+h/2,y+h],Y,S); if(by){y+=by.d;gy=by.t;} else if(gridOn)y=Math.round(y/grid)*grid;
+  } else if(!noSnap && gridOn){ x=Math.round(x/grid)*grid; y=Math.round(y/grid)*grid; }
+  return {x:Math.round(x),y:Math.round(y),gx,gy};
+}
+function snapResize(id,dir,x,y,w,h,noSnap){
+  let gx=null,gy=null; const H=HANDLES.find(q=>q[0]===dir); const hx=H[1],hy=H[2];
+  if(!noSnap && (snapOn||gridOn)){ const S=6/view.s; const {X,Y}=snapOn?snapTargets(id):{X:[],Y:[]};
+    if(hx===1){ const b=snapOn?nearest([x+w],X,S):null; if(b){w=b.t-x;gx=b.t;} else if(gridOn)w=Math.round((x+w)/grid)*grid-x; }
+    else if(hx===-1){ const b=snapOn?nearest([x],X,S):null; if(b){w+=x-b.t;x=b.t;gx=b.t;} else if(gridOn){const nx=Math.round(x/grid)*grid;w+=x-nx;x=nx;} }
+    if(hy===1){ const b=snapOn?nearest([y+h],Y,S):null; if(b){h=b.t-y;gy=b.t;} else if(gridOn)h=Math.round((y+h)/grid)*grid-y; }
+    else if(hy===-1){ const b=snapOn?nearest([y],Y,S):null; if(b){h+=y-b.t;y=b.t;gy=b.t;} else if(gridOn){const ny=Math.round(y/grid)*grid;h+=y-ny;y=ny;} }
+  }
+  return {x:Math.round(x),y:Math.round(y),w:Math.max(1,Math.round(w)),h:Math.max(1,Math.round(h)),gx,gy};
+}
+function alignNode(id,how){
+  const n=state.nodes[id],p=state.nodes[n.parent];
+  const pw=p.id===state.rootId?state.canvasW:p.w, ph=p.id===state.rootId?state.canvasH:p.h;
+  if(how==="left")n.x=0; else if(how==="ch")n.x=Math.round((pw-n.w)/2); else if(how==="right")n.x=pw-n.w;
+  else if(how==="top")n.y=0; else if(how==="cv")n.y=Math.round((ph-n.h)/2); else if(how==="bottom")n.y=ph-n.h;
+  render(); save();
+}
+
+/* ============================ Interaction ============================ */
+let drag=null;
+wrap.addEventListener("pointerdown",e=>{
+  const handle=e.target.closest(".handle");
+  const nodeEl=e.target.closest(".uinode");
+  const onStage=e.target===stage||e.target.closest("#stage");
+  if(handle){ const id=nodeEl.dataset.id, n=state.nodes[id];
+    drag={mode:"resize",id,dir:handle.dataset.dir,sx:e.clientX,sy:e.clientY,ox:n.x,oy:n.y,ow:n.w,oh:n.h};
+    wrap.setPointerCapture(e.pointerId); e.stopPropagation(); return; }
+  if(tool==="draw"){ // vẽ khối con trong node/stage bắt đầu
+    const parentId=nodeEl?nodeEl.dataset.id:state.rootId;
+    const gp=globalPos(parentId); const p=toCanvas(e.clientX,e.clientY);
+    drag={mode:"draw",parentId,x0:p.x-gp.x,y0:p.y-gp.y, gx0:p.x,gy0:p.y};
+    tmpRect.style.display="block"; wrap.classList.add("draw");
+    wrap.setPointerCapture(e.pointerId); return; }
+  if(nodeEl){ const id=nodeEl.dataset.id, n=state.nodes[id]; select(id);
+    drag={mode:"move",id,sx:e.clientX,sy:e.clientY,ox:n.x,oy:n.y};
+    wrap.setPointerCapture(e.pointerId); return; }
+  // nền stage / void → chọn root + pan
+  select(state.rootId);
+  drag={mode:"pan",sx:e.clientX,sy:e.clientY,ox:view.x,oy:view.y,moved:false};
+  wrap.classList.add("pan"); wrap.setPointerCapture(e.pointerId);
+});
+wrap.addEventListener("pointermove",e=>{
+  if(!drag)return;
+  if(drag.mode==="pan"){ view.x=drag.ox+(e.clientX-drag.sx); view.y=drag.oy+(e.clientY-drag.sy); applyView(); return; }
+  const dx=(e.clientX-(drag.sx||0))/view.s, dy=(e.clientY-(drag.sy||0))/view.s;
+  if(drag.mode==="move"){ const n=state.nodes[drag.id];
+    const sn=snapMove(drag.id, drag.ox+dx, drag.oy+dy, e.altKey); n.x=sn.x; n.y=sn.y;
+    const gp=globalPos(n.parent); drawGuides(sn.gx!=null?gp.x+sn.gx:null, sn.gy!=null?gp.y+sn.gy:null);
+    const el=stage.querySelector(`.uinode[data-id="${drag.id}"]`); if(el){el.style.left=n.x+"px";el.style.top=n.y+"px";} return; }
+  if(drag.mode==="resize"){ const n=state.nodes[drag.id]; const [,hx,hy]=HANDLES.find(h=>h[0]===drag.dir);
+    let x=drag.ox,y=drag.oy,w=drag.ow,h=drag.oh;
+    if(hx===1)w=drag.ow+dx; if(hx===-1){w=drag.ow-dx;x=drag.ox+dx;}
+    if(hy===1)h=drag.oh+dy; if(hy===-1){h=drag.oh-dy;y=drag.oy+dy;}
+    const sn=snapResize(drag.id,drag.dir,x,y,w,h,e.altKey);
+    n.x=sn.x;n.y=sn.y;n.w=sn.w;n.h=sn.h;
+    const gp=globalPos(n.parent); drawGuides(sn.gx!=null?gp.x+sn.gx:null, sn.gy!=null?gp.y+sn.gy:null);
+    const el=stage.querySelector(`.uinode[data-id="${drag.id}"]`);
+    if(el){el.style.left=n.x+"px";el.style.top=n.y+"px";el.style.width=n.w+"px";el.style.height=n.h+"px";} return; }
+  if(drag.mode==="draw"){ const p=toCanvas(e.clientX,e.clientY);
+    const x=Math.min(drag.gx0,p.x),y=Math.min(drag.gy0,p.y),w=Math.abs(p.x-drag.gx0),h=Math.abs(p.y-drag.gy0);
+    tmpRect.style.left=x+"px";tmpRect.style.top=y+"px";tmpRect.style.width=w+"px";tmpRect.style.height=h+"px"; return; }
+});
+wrap.addEventListener("pointerup",e=>{
+  if(!drag){return;}
+  if(drag.mode==="draw"){ tmpRect.style.display="none"; wrap.classList.remove("draw");
+    const p=toCanvas(e.clientX,e.clientY); const gp=globalPos(drag.parentId);
+    let w=Math.abs(p.x-drag.gx0),h=Math.abs(p.y-drag.gy0);
+    if(w<6||h<6){w=200;h=100;}  // click nhẹ → khối mặc định
+    const lx=Math.min(drag.x0,(p.x-gp.x)), ly=Math.min(drag.y0,(p.y-gp.y));
+    const id=addChild(drag.parentId,lx,ly,w,h); render(); select(id); save(); commit();
+    setTool("move");
+  } else if(drag.mode==="move"||drag.mode==="resize"){ render(); save(); commit(); }
+  clearGuides(); wrap.classList.remove("pan"); drag=null;
+});
+wrap.addEventListener("wheel",e=>{ e.preventDefault();
+  const r=wrap.getBoundingClientRect(); const mx=e.clientX-r.left,my=e.clientY-r.top;
+  const wx=(mx-view.x)/view.s, wy=(my-view.y)/view.s;
+  view.s=Math.min(3,Math.max(.05,view.s*(e.deltaY<0?1.1:0.9)));
+  view.x=mx-wx*view.s; view.y=my-wy*view.s; applyView();
+  stBadge.textContent=`${state.canvasW}×${state.canvasH}  ·  ${Math.round(view.s*100)}%  ·  ${Object.keys(state.nodes).length-1} khối`;
+},{passive:false});
+function toCanvas(cx,cy){ const r=wrap.getBoundingClientRect();
+  return { x:(cx-r.left-view.x)/view.s, y:(cy-r.top-view.y)/view.s }; }
+
+document.addEventListener("keydown",e=>{
+  const t=document.activeElement.tagName;
+  if(t==="INPUT"||t==="TEXTAREA"||t==="SELECT")return;
+  if(e.ctrlKey||e.metaKey){ const k=e.key.toLowerCase();
+    if(k==="z"){e.preventDefault(); e.shiftKey?redo():undo();}
+    else if(k==="y"){e.preventDefault();redo();}
+    else if(k==="d"){e.preventDefault();duplicateSelected();}
+    else if(k==="c"){e.preventDefault();copySelected();}
+    else if(k==="v"){e.preventDefault();pasteClipboard();}
+    return; }
+  if((e.key==="Delete"||e.key==="Backspace")&&selId&&selId!==state.rootId){removeNode(selId);render();save();commit();e.preventDefault();return;}
+  if(selId&&selId!==state.rootId&&e.key.startsWith("Arrow")){
+    const s=e.shiftKey?10:1, n=state.nodes[selId];
+    if(e.key==="ArrowLeft")n.x-=s; else if(e.key==="ArrowRight")n.x+=s;
+    else if(e.key==="ArrowUp")n.y-=s; else n.y+=s;
+    e.preventDefault(); render(); save(); return;
+  }
+  if(e.key==="v"||e.key==="V")setTool("move");
+  if(e.key==="b"||e.key==="B")setTool("draw");
+});
+
+/* ============================ Tools / topbar ============================ */
+function setTool(t){ tool=t; document.getElementById("toolMove").classList.toggle("on",t==="move");
+  document.getElementById("toolDraw").classList.toggle("on",t==="draw"); wrap.classList.toggle("draw",t==="draw"&&!drag); }
+document.getElementById("toolMove").onclick=()=>setTool("move");
+document.getElementById("toolDraw").onclick=()=>setTool("draw");
+document.getElementById("btnAdd").onclick=()=>{
+  const parentId=(selId&&selId!==state.rootId)?selId:state.rootId;
+  const gp=globalPos(parentId);
+  const cx=(wrap.clientWidth/2-view.x)/view.s-gp.x-100, cy=(wrap.clientHeight/2-view.y)/view.s-gp.y-50;
+  const id=addChild(parentId,cx,cy,200,100); render(); select(id); save();
+};
+document.getElementById("btnAddText").onclick=()=>{
+  const parentId=(selId&&selId!==state.rootId)?selId:state.rootId; const gp=globalPos(parentId);
+  const cx=(wrap.clientWidth/2-view.x)/view.s-gp.x-140, cy=(wrap.clientHeight/2-view.y)/view.s-gp.y-25;
+  const id=addChild(parentId,cx,cy,280,50,"text"); render(); select(id); save();
+};
+document.getElementById("btnFit").onclick=()=>{fit();render();};
+document.getElementById("btnSnap").onclick=()=>{snapOn=!snapOn;document.getElementById("btnSnap").classList.toggle("on",snapOn);toast(snapOn?"Snap: bật":"Snap: tắt");};
+document.getElementById("btnGrid").onclick=()=>{gridOn=!gridOn;document.getElementById("btnGrid").classList.toggle("on",gridOn);render();};
+document.getElementById("gridSize").addEventListener("change",e=>{grid=Math.max(1,Math.round(+e.target.value||10));render();});
+nameEl.addEventListener("input",e=>{state.name=e.target.value;save();});
+cwEl.addEventListener("change",e=>{state.canvasW=+e.target.value||1080;fit();render();save();});
+chEl.addEventListener("change",e=>{state.canvasH=+e.target.value||1920;fit();render();save();});
+document.getElementById("preset").addEventListener("change",e=>{ if(!e.target.value)return;
+  const [w,h]=e.target.value.split(",").map(Number); state.canvasW=w;state.canvasH=h;
+  cwEl.value=w;chEl.value=h;e.target.value="";fit();render();save(); });
+
+/* ============================ Export / Import ============================ */
+function buildJSON(){
+  const nodes=Object.values(state.nodes).map(n=>{
+    const o={id:n.id}; if(n.name)o.name=n.name;
+    if(n.id!==state.rootId){o.x=n.x;o.y=n.y;} else {o.x=0;o.y=0;}
+    o.w=n.id===state.rootId?state.canvasW:n.w; o.h=n.id===state.rootId?state.canvasH:n.h;
+    if(n.kind==="text"){ o.kind="text"; o.text=n.text; o.fontSize=n.fontSize; o.color=n.color;
+      if(n.align!=="center")o.align=n.align; if(n.valign!=="middle")o.valign=n.valign; }
+    else { if(n.fill){ o.color=(n.alpha??255)>=255?n.color:n.color+(n.alpha).toString(16).padStart(2,"0"); }
+      if(n.sprite)o.sprite=n.sprite; }
+    if(n.children.length)o.children=[...n.children];
+    return o;
+  });
+  return { name:state.name, canvasW:state.canvasW, canvasH:state.canvasH, root:state.rootId, nodes };
+}
+function loadJSON(obj){
+  if(!obj||!Array.isArray(obj.nodes))throw new Error("Thiếu mảng nodes");
+  state={name:obj.name||"UILayout",canvasW:obj.canvasW||1080,canvasH:obj.canvasH||1920,rootId:obj.root||"root",nodes:{}};
+  let max=-1;
+  obj.nodes.forEach(nd=>{ if(!nd.id)return;
+    let color="#2dd4bf",alpha=255,fill=!!nd.color;
+    if(nd.color){ const m=/^#?([0-9a-fA-F]{6})([0-9a-fA-F]{2})?$/.exec(nd.color.replace("#",""));
+      if(m){color="#"+m[1];alpha=m[2]?parseInt(m[2],16):255;} else color=nd.color; }
+    const isText=nd.kind==="text";
+    state.nodes[nd.id]={id:nd.id,name:nd.name||"",x:nd.x||0,y:nd.y||0,w:nd.w||100,h:nd.h||100,
+      color,alpha,fill:isText?false:fill,sprite:nd.sprite||"",
+      kind:isText?"text":"box",text:nd.text||"",fontSize:nd.fontSize||32,align:nd.align||"center",valign:nd.valign||"middle",
+      parent:null,children:[...(nd.children||[])]};
+    const g=/^u(\d+)$/.exec(nd.id); if(g)max=Math.max(max,+g[1]);
+  });
+  if(!state.nodes[state.rootId]){ // đảm bảo có root
+    state.rootId="root";
+    state.nodes.root=state.nodes.root||{id:"root",name:"Background",x:0,y:0,w:state.canvasW,h:state.canvasH,color:"#1b1e28",alpha:255,fill:true,sprite:"",parent:null,children:[]};
+  }
+  // set parent pointers
+  Object.values(state.nodes).forEach(n=>n.children.forEach(c=>{if(state.nodes[c])state.nodes[c].parent=n.id;}));
+  // nodes không có cha (trừ root) → gắn vào root
+  Object.values(state.nodes).forEach(n=>{ if(n.id!==state.rootId&&!n.parent){n.parent=state.rootId;state.nodes[state.rootId].children.push(n.id);} });
+  counter=max+1; selId=null;
+  nameEl.value=state.name; cwEl.value=state.canvasW; chEl.value=state.canvasH;
+  fit(); render();
+}
+function openModal(title,text,btns){
+  document.getElementById("modalTitle").textContent=title;
+  document.getElementById("modalText").value=text;
+  const f=document.getElementById("modalFoot");f.innerHTML="";
+  btns.forEach(b=>{const x=document.createElement("button");x.textContent=b.label;if(b.primary)x.className="primary";x.onclick=b.fn;f.appendChild(x);});
+  document.getElementById("modal").classList.add("show");
+}
+const closeModal=()=>document.getElementById("modal").classList.remove("show");
+document.getElementById("btnExport").onclick=()=>{
+  const json=JSON.stringify(buildJSON(),null,2);
+  openModal(state.name+".uijson",json,[
+    {label:"Copy",fn:async()=>{try{await navigator.clipboard.writeText(json);toast("Đã copy");}catch{document.getElementById("modalText").select();document.execCommand("copy");toast("Đã copy");}}},
+    {label:"Tải file",primary:true,fn:()=>download(state.name+".uijson",json)},
+  ]);
+};
+function download(name,text){const b=new Blob([text],{type:"application/json"});const a=document.createElement("a");
+  a.href=URL.createObjectURL(b);a.download=name;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);toast("Đã tải "+name);}
+document.getElementById("btnOpen").onclick=()=>document.getElementById("fileInput").click();
+document.getElementById("fileInput").addEventListener("change",e=>{const f=e.target.files[0];if(!f)return;
+  const r=new FileReader();r.onload=()=>{try{loadJSON(JSON.parse(r.result));save();toast("Đã mở "+f.name);}catch(err){toast("Lỗi: "+err.message);}};
+  r.readAsText(f);e.target.value="";});
+document.getElementById("btnNew").onclick=()=>{ if(Object.keys(state.nodes).length>1&&!confirm("Xoá hết layout?"))return; seed(); save(); };
+document.getElementById("modalClose").onclick=closeModal;
+document.getElementById("modal").addEventListener("click",e=>{if(e.target.id==="modal")closeModal();});
+wrap.addEventListener("dragover",e=>e.preventDefault());
+wrap.addEventListener("drop",e=>{e.preventDefault();const f=e.dataTransfer.files[0];if(!f)return;
+  const r=new FileReader();r.onload=()=>{try{loadJSON(JSON.parse(r.result));save();toast("Đã mở "+f.name);}catch(err){toast("Lỗi: "+err.message);}};r.readAsText(f);});
+
+/* help */
+const helpEl=document.getElementById("help");
+document.getElementById("btnHelp").onclick=()=>helpEl.classList.add("show");
+document.getElementById("helpClose").onclick=()=>helpEl.classList.remove("show");
+document.getElementById("helpOk").onclick=()=>helpEl.classList.remove("show");
+helpEl.addEventListener("click",e=>{if(e.target.id==="help")helpEl.classList.remove("show");});
+document.addEventListener("keydown",e=>{if(e.key==="Escape")helpEl.classList.remove("show");});
+
+/* persistence */
+function save(){ try{ state.name=nameEl.value; localStorage.setItem(LS,JSON.stringify(buildJSON())); }catch{} commitSoon(); }
+function load(){ try{const s=localStorage.getItem(LS);if(s){loadJSON(JSON.parse(s));return true;}}catch{} return false; }
+
+/* ---- Undo / Redo (snapshot history) ---- */
+let hist=[], hi=-1, histTimer=null, restoring=false;
+function histSnap(){ return { s:JSON.stringify(state), sel:selId }; }
+function commit(){
+  if(restoring) return;
+  clearTimeout(histTimer); histTimer=null;
+  const s=histSnap();
+  if(hi>=0 && hist[hi] && hist[hi].s===s.s){ hist[hi].sel=s.sel; return; }  // không đổi → bỏ qua
+  hist=hist.slice(0,hi+1); hist.push(s); hi=hist.length-1;
+  if(hist.length>150){ hist.shift(); hi--; }
+}
+function commitSoon(){ if(restoring) return; clearTimeout(histTimer); histTimer=setTimeout(commit,400); }  // gộp edit liên tục
+function restoreHist(){
+  restoring=true;
+  const h=hist[hi]; state=JSON.parse(h.s); selId=h.sel;
+  let max=-1; for(const id in state.nodes){ const m=/^u(\d+)$/.exec(id); if(m)max=Math.max(max,+m[1]); } counter=max+1;
+  nameEl.value=state.name; cwEl.value=state.canvasW; chEl.value=state.canvasH;
+  render();
+  restoring=false;
+  try{ localStorage.setItem(LS,JSON.stringify(buildJSON())); }catch{}
+}
+function undo(){ if(histTimer) commit();  // flush edit đang chờ
+  if(hi>0){ hi--; restoreHist(); } else toast("Không còn để undo"); }
+function redo(){ if(hi<hist.length-1){ hi++; restoreHist(); } else toast("Không còn để redo"); }
+
+/* ============================ Boot / seed ============================ */
+function seed(){
+  loadJSON({name:"MainMenu",canvasW:1080,canvasH:1920,root:"root",nodes:[
+    {id:"root",name:"Background",x:0,y:0,w:1080,h:1920,color:"#1b1e28",children:["logo","play","settings","footer"]},
+    {id:"logo",name:"Logo",x:340,y:220,w:400,h:220,color:"#ffffff"},
+    {id:"play",name:"PlayButton",x:390,y:980,w:300,h:130,color:"#2dd4bf"},
+    {id:"settings",name:"SettingsButton",x:390,y:1160,w:300,h:130,color:"#3a4152"},
+    {id:"footer",name:"Footer",x:0,y:1820,w:1080,h:100,color:"#12151c"},
+  ]});
+}
+if(!load())seed();
+render();
+commit();   // checkpoint đầu tiên cho undo
+requestAnimationFrame(fit);   // fit lại sau khi layout có kích thước thật
+window.addEventListener("resize",()=>{fit();});
+</script>
+</body>
+</html>
