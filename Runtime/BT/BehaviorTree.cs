@@ -11,24 +11,39 @@ namespace UyiCore.BT
     {
         public TOwner Owner { get; }
         public INode<TOwner> Root { get; }
-        public Blackboard Blackboard { get; } = new Blackboard();
+        public Blackboard Blackboard { get; }
         public NodeStatus LastStatus { get; private set; } = NodeStatus.Running;
 
         /// <summary>Chạy tree mỗi N giây (0 = mỗi frame). Useful cho enemy xa player.</summary>
         public float TickInterval = 0f;
         private float _elapsed;
 
+        /// <summary>true = xong (Success/Failure) thì Reset chạy lại (mặc định). false = one-shot: dừng hẳn.</summary>
+        public bool Loop = true;
+        /// <summary>Đã dừng (one-shot xong, hoặc gọi <see cref="Stop"/>). Tick sẽ no-op tới khi <see cref="Reset"/>.</summary>
+        public bool IsFinished { get; private set; }
+
         public event Action<NodeStatus> OnTreeCompleted;
 
-        public BehaviorTree(TOwner owner, INode<TOwner> root)
+        /// <summary>Dừng cây (Tick thành no-op). Gọi <see cref="Reset"/> để chạy lại.</summary>
+        public void Stop() => IsFinished = true;
+
+        public BehaviorTree(TOwner owner, INode<TOwner> root) : this(owner, root, null) { }
+
+        /// <summary>
+        /// <paramref name="blackboard"/> = kho state chia sẻ cho mọi node. Truyền vào để
+        /// leaf (registry lambda) và code ngoài dùng CHUNG 1 instance; null → tự tạo mới.
+        /// </summary>
+        public BehaviorTree(TOwner owner, INode<TOwner> root, Blackboard blackboard)
         {
             Owner = owner;
             Root = root;
+            Blackboard = blackboard ?? new Blackboard();
         }
 
         public void Tick(float deltaTime)
         {
-            if (Root == null) return;
+            if (Root == null || IsFinished) return;
 
             if (TickInterval > 0f)
             {
@@ -42,7 +57,8 @@ namespace UyiCore.BT
             if (LastStatus != NodeStatus.Running)
             {
                 OnTreeCompleted?.Invoke(LastStatus);
-                Root.Reset(Owner);
+                if (Loop) Root.Reset(Owner);
+                else IsFinished = true;
             }
         }
 
@@ -51,6 +67,7 @@ namespace UyiCore.BT
             Root?.Reset(Owner);
             _elapsed = 0f;
             LastStatus = NodeStatus.Running;
+            IsFinished = false;
         }
     }
 
@@ -76,6 +93,8 @@ namespace UyiCore.BT
 
         public BTBuilder<TOwner> Sequence(string name = null) => PushComposite(new SequenceNode<TOwner>(), name);
         public BTBuilder<TOwner> Selector(string name = null) => PushComposite(new SelectorNode<TOwner>(), name);
+        public BTBuilder<TOwner> ReactiveSelector(string name = null) => PushComposite(new ReactiveSelectorNode<TOwner>(), name);
+        public BTBuilder<TOwner> ReactiveSequence(string name = null) => PushComposite(new ReactiveSequenceNode<TOwner>(), name);
 
         public BTBuilder<TOwner> Parallel(int successThreshold = -1, string name = null)
         {

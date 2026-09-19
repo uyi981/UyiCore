@@ -15,6 +15,13 @@ Tất cả thay đổi đáng kể của UyiCore.
 - **Tools menu** — `Tools ▸ UyiCore ▸ Open BT / UI Editor` mở tool HTML.
 - **Prefab Brush** (`Tools ▸ UyiCore ▸ Prefab Brush`) — vẽ prefab lên Scene: multi-prefab random, brush size/density/spacing, đặt lên Collider/GroundY/2D, align normal, random xoay/scale, parent, xoá (Ctrl), undo.
 - Sample data-driven BT (`Samples~/DataDrivenBT`) + UI layout (`Samples~/UiLayout`).
+- **Input** (`UyiCore.Input`) — facade tĩnh bọc Unity Input System (poll `Pressed/Held/Released/Axis/Axis2D`, event `OnPerformed/Off`, context `SwitchMap`, rebind + `BindingDisplay`, `Scheme`/`OnSchemeChanged`). Asmdef riêng constrained `ENABLE_INPUT_SYSTEM` (optional — không cài gói vẫn build). Rebind lưu qua SaveSystem.
+- **BT Blackboard vào data-driven** — registry `Action/Condition/Do` thêm overload nhận `Blackboard`; `Compile(asset, owner, reg, blackboard, debug)` truyền 1 blackboard chung cho leaf + cây.
+- **BT reactive / abort** — `ReactiveSelectorNode` / `ReactiveSequenceNode` (nhánh ưu tiên cao cắt ngang nhánh đang chạy) + builder `.ReactiveSelector()`/`.ReactiveSequence()` + node trong tool HTML.
+- **BT one-shot** — `BehaviorTree.Loop` (mặc định true) + `Stop()` + `IsFinished`; compiler cảnh báo khi `Repeater` vô hạn nằm giữa một `Sequence`.
+- **BT Debugger** (editor) — `Tools ▸ UyiCore ▸ Behavior Tree Debugger`: GraphView chỉ-xem tô màu node theo status live (bật bằng `Compile(..., debug: true)`).
+- **BT tool HTML** — undo/redo, minimap, chuột phải node (copy/duplicate/delete), multi-select + marquee kéo chọn.
+- **Save** — API lưu **theo tên file**: `Save<T>(string name, …)` / `Load<T>(string name)` / `Exists`/`Delete(string)` (không đụng slot & settings chung).
 
 ### Fixed
 - **Audio** — BGM volume slider chỉnh nhầm source đang phát (track `_activeBgm` thay vì suy từ cờ toggle).

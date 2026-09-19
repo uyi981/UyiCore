@@ -31,6 +31,12 @@ namespace UyiCore.BT
 
         /// <summary>Tham số key-value (value luôn là string, parse theo kiểu khi build).</summary>
         public List<BTParam> @params = new List<BTParam>();
+
+        /// <summary>Toạ độ node trong graph editor (chỉ dùng cho editor GraphView).
+        /// Runtime/compiler BỎ QUA hoàn toàn. Xuất .btjson cũng không kèm 2 field này
+        /// (BTGraphIO ghi JSON thủ công) để giữ schema sạch, tương thích tool HTML cũ.</summary>
+        public float x;
+        public float y;
     }
 
     /// <summary>1 cặp key-value. Value giữ dạng string để round-trip JSON ↔ SO đơn giản.</summary>

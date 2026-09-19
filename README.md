@@ -62,7 +62,8 @@ com.uyi.core/
 │   ├── BT/             UyiCore.BT             Behavior Tree fluent builder + data-driven (SO/JSON)
 │   ├── Timer/          UyiCore.Timing         Schedule callbacks (static API)
 │   ├── Tween/          UyiCore.Tweening       Tween engine + UI tween helpers + easing
-│   └── UIEffect/       UyiCore.UIEffect       UI effect preset (SO) + component kéo-thả
+│   ├── UIEffect/       UyiCore.UIEffect       UI effect preset (SO) + component kéo-thả
+│   └── Input/          UyiCore.Input          Facade cho Unity Input System (asmdef riêng, optional)
 └── Editor/
     └── UyiCore.Editor.asmdef         UyiCore.EditorTools (BT/UI importer + Tools menu)
 ```
@@ -511,17 +512,24 @@ public class EnemyController : MonoBehaviour {
 
 ### Blackboard
 
+Kho state chia sẻ giữa các node + code ngoài (mỗi owner 1 blackboard riêng).
 ```csharp
+// code ngoài
 _bt.Blackboard.Set("lastKnownPos", playerPos);
 var pos = _bt.Blackboard.Get<Vector3>("lastKnownPos");
+
+// trong registry (data-driven) — lambda nhận thêm Blackboard:
+reg.Condition("HasTarget", (e, bb, p) => bb.Has("target"))
+   .Do("PickTarget",       (e, bb, p) => bb.Set("target", e.FindTarget()));
 ```
 
 ### Đặc điểm
 - **`.End()` cho mọi composite + decorator** — predictable, không magic auto-pop.
-- **Tree auto-reset** sau Success/Failure → next tick chạy lại từ đầu.
+- **Loop / one-shot** — mặc định xong Success/Failure là Reset chạy lại; `bt.Loop = false` + `bt.Stop()` để dừng hẳn.
+- **Reactive / abort** — `ReactiveSelector` / `ReactiveSequence`: nhánh ưu tiên cao chạy được sẽ cắt ngang nhánh đang chạy (builder `.ReactiveSelector()` / `.ReactiveSequence()`).
 - **`OnTreeCompleted` event** — fire khi root kết thúc.
 - **TickInterval** — optimize enemy xa player.
-- Skip phase 1: service node, visual debug, random selector.
+- **Debugger** editor (xem cuối mục Data-driven).
 
 ### Data-driven (SO + JSON) — `UyiCore.BT.Data`
 
@@ -547,7 +555,7 @@ Ngoài fluent builder (code-first), BT còn dựng được từ **ScriptableObj
   ]}
 ```
 
-`type` cấu trúc: `Selector/Sequence/Parallel/Inverter/Repeater/Cooldown/UntilSuccess/UntilFailure/Wait/Succeed/Fail`.
+`type` cấu trúc: `Selector/Sequence/ReactiveSelector/ReactiveSequence/Parallel/Inverter/Repeater/Cooldown/UntilSuccess/UntilFailure/Wait/Succeed/Fail`.
 `type` leaf bind registry: `Action` (trả NodeStatus) · `Condition` (bool) · `Do` (chạy rồi Success) — dùng `ref` trỏ id đăng ký.
 
 **Dùng**
@@ -568,6 +576,14 @@ void Update() => _bt.Tick(Time.deltaTime);
 **Workflow**: thiết kế bằng tool HTML → export `EnemyAI.btjson` → thả vào `Assets/` (auto ra SO) → kéo SO vào field owner. Ref chưa đăng ký → node fail + log rõ. Sample: `Samples~/DataDrivenBT/`.
 
 > Fluent builder và SO **cùng biên dịch ra 1 cây runtime** — dùng song song thoải mái.
+
+### Debugger (editor)
+
+Compile với `debug: true` → vào **Play** → **Tools ▸ UyiCore ▸ Behavior Tree Debugger**, chọn cây trong dropdown → canvas tô màu node theo status **live**: 🟡 Running · 🟢 Success · 🔴 Failure · mờ = không tick frame này. Tắt debug (mặc định) = zero cost.
+
+```csharp
+_bt = BehaviorTreeCompiler.Compile(asset, this, reg, blackboard: null, debug: true);
+```
 
 ---
 
@@ -661,6 +677,75 @@ GetComponent<UiEffectPlayer>().Play();   // hoặc chơi bằng code
 - **Non-invasive**: gắn bằng component, không đụng logic UI.
 - **Preset SO** = feel đồng bộ + tune 1 chỗ.
 - Dựa hết trên **Tween** (tầng nền) — cancel/auto-huỷ theo.
+
+---
+
+## 13. Input — `UyiCore.Input`
+
+Facade tĩnh **bọc Unity Input System** cho gọn (giống `Timer`/`SaveSystem`). Nguồn dữ liệu vẫn là 1 `InputActionAsset` (.inputactions) — bạn vẫn vẽ map/gán phím trong Unity. Wrapper chỉ đỡ boilerplate + gom lifecycle + nối rebind vào Save.
+
+> **Optional dependency:** module nằm ở asmdef riêng `UyiCore.Input` với `defineConstraints: ENABLE_INPUT_SYSTEM`. Cần cài gói **Input System** và set *Active Input Handling = Both / Input System Package* (Project Settings ▸ Player). Không có gói → module tự ẩn, phần còn lại của UyiCore vẫn build.
+>
+> Hợp **single-player / online** (mỗi máy 1 người local). **Couch co-op** (nhiều người chung máy) phải dùng `PlayerInput` riêng — facade tĩnh này không hợp.
+
+### Files
+- `UyiInput.cs` — facade tĩnh: poll / event / context / rebind / device scheme
+- `InputScheme.cs` — enum `KeyboardMouse / Gamepad / Touch`
+
+### Setup Unity
+1. Package Manager → cài **Input System**; Active Input Handling → **Both** hoặc **Input System Package**.
+2. **Create ▸ Input Actions** → thêm map `Gameplay`/`UI` + action (`Move` = Value/Vector2, `Jump`, `Fire`…).
+3. Ở **Bootstrap** gán asset và init:
+```csharp
+[SerializeField] InputActionAsset inputActions;
+void Awake() => UyiInput.Init(inputActions, defaultMap: "Gameplay");
+```
+
+### API
+```csharp
+// Poll (đọc trong Update)
+Vector2 move = UyiInput.Axis2D("Move");
+if (UyiInput.Pressed("Jump"))  Jump();
+if (UyiInput.Held("Fire"))     Fire();
+if (UyiInput.Released("Aim"))  StopAim();
+
+// Event (UI / one-shot)
+UyiInput.OnPerformed("Pause", _ => TogglePause());
+UyiInput.Off("Pause", handler);          // gỡ khi không cần
+
+// Context (action map) — mở menu thì tắt input gameplay
+UyiInput.SwitchMap("UI");                // bật 1 map, tắt các map khác
+UyiInput.EnableMap("Gameplay");
+
+// Thiết bị → đổi icon phím gợi ý
+if (UyiInput.Scheme == InputScheme.Gamepad) ShowPadIcons();
+UyiInput.OnSchemeChanged += RefreshPrompts;
+
+// Rebind + lưu (tự nối SaveSystem)
+UyiInput.StartRebind("Jump", onComplete: RefreshLabel);
+UyiInput.ResetBindings();                // về mặc định
+string key = UyiInput.BindingDisplay("Jump");   // "Space"
+```
+
+### Netcode
+Đọc input chỉ ở object mình sở hữu:
+```csharp
+void Update() {
+    if (!IsOwner) return;                 // NGO / Netcode
+    var v = UyiInput.Axis2D("Move");
+    if (UyiInput.Pressed("Jump")) Jump(); // client-authoritative hoặc gửi ServerRpc
+}
+```
+
+### Đặc điểm
+- **Cache `InputAction` theo id** — lookup 1 lần rồi tái dùng.
+- **Không leak listener**: `OnPerformed/Off` + tự dọn khi `Teardown`/vào Play (reset static giống Observer).
+- **Rebind lưu qua SaveSystem** (`Save("input_rebinds", …)` — file riêng, không đè settings).
+- Thò xuống thô được qua `UyiInput.Asset`.
+
+### Hạn chế
+- **String id gõ sai không báo compile** → nên gom hằng số: `public static class InputIds { public const string Move="Move", Jump="Jump"; }`.
+- 1 input toàn cục → không dùng cho couch co-op chia màn hình.
 
 ---
 

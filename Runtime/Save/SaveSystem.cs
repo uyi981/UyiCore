@@ -137,6 +137,17 @@ namespace UyiCore.Save
 
         public static bool ExistsSettings() => File.Exists(GetSettingsPath());
 
+        // ----- Named file (không theo slot) — cho module tự lưu file riêng: input, achievements... -----
+
+        public static bool Save<T>(string name, T data, string label = null) where T : class
+            => WriteEnvelope(GetNamedPath(name), data, label);
+
+        public static T Load<T>(string name) where T : class
+            => ReadData<T>(GetNamedPath(name));
+
+        public static bool Exists(string name) => File.Exists(GetNamedPath(name));
+        public static bool Delete(string name) => DeleteFile(GetNamedPath(name));
+
         // ----- Bulk -----
 
         public static int DeleteAll()
@@ -278,6 +289,20 @@ namespace UyiCore.Save
         static string GetSettingsPath()
         {
             return Path.Combine(GetRootPath(), _opts.SettingsFileName + _opts.FileExtension);
+        }
+
+        static string GetNamedPath(string name)
+        {
+            return Path.Combine(GetRootPath(), SanitizeName(name) + _opts.FileExtension);
+        }
+
+        static string SanitizeName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return "unnamed";
+            var sb = new StringBuilder(name.Length);
+            foreach (var ch in name)
+                sb.Append(char.IsLetterOrDigit(ch) || ch == '_' || ch == '-' ? ch : '_');
+            return sb.ToString();
         }
 
         // ----- Obfuscation: XOR + Base64. Deter casual tampering, KHÔNG phải mã hoá. -----

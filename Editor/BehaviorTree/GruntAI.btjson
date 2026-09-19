@@ -1,0 +1,124 @@
+{
+  "name": "GruntAI",
+  "root": "n0",
+  "nodes": [
+    {
+      "id": "n0",
+      "type": "Selector",
+      "children": [
+        "n1",
+        "n4",
+        "n7",
+        "n9"
+      ],
+      "x": 360,
+      "y": 20
+    },
+    {
+      "id": "n1",
+      "type": "Sequence",
+      "children": [
+        "n2",
+        "n3"
+      ],
+      "x": 60,
+      "y": 150
+    },
+    {
+      "id": "n2",
+      "type": "Condition",
+      "ref": "HpBelow",
+      "params": [
+        {
+          "key": "threshold",
+          "value": "0.2"
+        }
+      ],
+      "x": -37,
+      "y": 293
+    },
+    {
+      "id": "n3",
+      "type": "Do",
+      "ref": "Flee",
+      "x": 201,
+      "y": 309
+    },
+    {
+      "id": "n4",
+      "type": "Sequence",
+      "children": [
+        "n5",
+        "n6"
+      ],
+      "x": 320,
+      "y": 146
+    },
+    {
+      "id": "n5",
+      "type": "Condition",
+      "ref": "InRange",
+      "params": [
+        {
+          "key": "distance",
+          "value": "5"
+        }
+      ],
+      "x": 310,
+      "y": 290
+    },
+    {
+      "id": "n6",
+      "type": "Cooldown",
+      "children": [
+        "n6a"
+      ],
+      "params": [
+        {
+          "key": "duration",
+          "value": "0.8"
+        }
+      ],
+      "x": 470,
+      "y": 290
+    },
+    {
+      "id": "n6a",
+      "type": "Do",
+      "ref": "Attack",
+      "x": 470,
+      "y": 410
+    },
+    {
+      "id": "n7",
+      "type": "Sequence",
+      "children": [
+        "n8",
+        "n8a"
+      ],
+      "x": 560,
+      "y": 150
+    },
+    {
+      "id": "n8",
+      "type": "Condition",
+      "ref": "CanSeePlayer",
+      "x": 591,
+      "y": 284
+    },
+    {
+      "id": "n8a",
+      "type": "Action",
+      "ref": "Chase",
+      "x": 738,
+      "y": 274
+    },
+    {
+      "id": "n9",
+      "type": "Do",
+      "ref": "Patrol",
+      "x": 820,
+      "y": 150
+    }
+  ]
+}

@@ -51,7 +51,7 @@
     background:
       radial-gradient(circle at 1px 1px, #222b38 1px, transparent 0) 0 0/22px 22px,
       var(--bg);
-    cursor:grab}
+    cursor:default}
   #viewport.panning{cursor:grabbing}
   #world{position:absolute;top:0;left:0;transform-origin:0 0}
   #wires{position:absolute;top:0;left:0;overflow:visible;pointer-events:none;transform-origin:0 0}
@@ -168,6 +168,29 @@
     font-family:var(--mono);font-size:11.5px;line-height:1.6;color:#cdd6e3;margin:9px 0}
   .guide .dot{display:inline-block;width:9px;height:9px;border-radius:3px;vertical-align:middle;margin-right:3px}
   .guide .lead{color:var(--muted);font-size:12px;margin-bottom:4px}
+
+  /* ---- Context menu (chuột phải node) ---- */
+  #ctxMenu{position:fixed;z-index:75;background:var(--panel);border:1px solid var(--line);border-radius:9px;
+    box-shadow:0 12px 32px -8px rgba(0,0,0,.75);padding:5px;min-width:158px;display:none}
+  #ctxMenu.show{display:block}
+  #ctxMenu .mi{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px}
+  #ctxMenu .mi:hover{background:var(--panel2)}
+  #ctxMenu .mi.danger{color:var(--danger)}
+  #ctxMenu .mi.disabled{opacity:.4;pointer-events:none}
+  #ctxMenu .mi .k{margin-left:auto;color:var(--faint);font-family:var(--mono);font-size:10px}
+  #ctxMenu .sepline{height:1px;background:var(--line);margin:4px 2px}
+
+  /* ---- Marquee (kéo chọn nhiều) ---- */
+  #marquee{position:absolute;border:1px solid var(--accent);background:rgba(45,212,191,.12);
+    pointer-events:none;display:none;z-index:5;border-radius:3px}
+  .node.sel .head{box-shadow:inset 0 0 0 1px rgba(45,212,191,.5)}
+
+  /* ---- Minimap ---- */
+  #minimap{position:fixed;right:12px;bottom:12px;z-index:40;background:rgba(12,15,21,.92);
+    border:1px solid var(--line);border-radius:8px;padding:4px;box-shadow:0 8px 24px -10px rgba(0,0,0,.7)}
+  #minimap canvas{display:block;cursor:pointer;border-radius:4px}
+  #minimap .mmlabel{position:absolute;top:-8px;left:8px;font-size:8px;letter-spacing:.12em;color:var(--faint);
+    background:var(--panel);padding:0 5px;text-transform:uppercase}
 </style>
 </head>
 <body>
@@ -193,6 +216,7 @@
   <div id="viewport">
     <svg id="wires"><g id="wireLayer"></g></svg>
     <div id="world"></div>
+    <div id="marquee"></div>
   </div>
 
   <div id="side">
@@ -285,11 +309,14 @@ void Update(){ _bt.Tick(Time.deltaTime); }</pre>
   </div>
   <div id="toast"></div>
   <div id="nodeMenu"></div>
+  <div id="ctxMenu"></div>
+  <div id="minimap"><span class="mmlabel">map</span><canvas id="mmCanvas" width="220" height="140"></canvas></div>
 
 <script>
 /* ============================ Model & catalog ============================ */
 const TYPES = {
   Selector:{cat:"composite",kids:Infinity}, Sequence:{cat:"composite",kids:Infinity},
+  ReactiveSelector:{cat:"composite",kids:Infinity}, ReactiveSequence:{cat:"composite",kids:Infinity},
   Parallel:{cat:"composite",kids:Infinity,params:[["successThreshold","-1"]]},
   Inverter:{cat:"decorator",kids:1}, Repeater:{cat:"decorator",kids:1,params:[["count","-1"]]},
   Cooldown:{cat:"decorator",kids:1,params:[["duration","1"],["resetOnFailure","true"]]},
@@ -300,6 +327,8 @@ const TYPES = {
 const DESC = {
   Selector:"Composite (OR / ưu tiên): thử con lần lượt tới khi 1 con Success thì dừng. Hết mà đều Fail → Fail.",
   Sequence:"Composite (AND): chạy con tuần tự; 1 con Fail là dừng & Fail. Hết con → Success.",
+  ReactiveSelector:"Selector phản ứng: mỗi tick xét lại từ đầu; nhánh ưu tiên cao chạy được sẽ CẮT nhánh thấp đang chạy.",
+  ReactiveSequence:"Sequence phản ứng: mỗi tick xét lại guard từ đầu; guard fail giữa chừng sẽ ABORT hành động đang chạy. (Đừng đặt node có state trước hành động.)",
   Parallel:"Composite: chạy tất cả con song song. Đủ successThreshold con Success → Success.",
   Inverter:"Decorator (1 con): đảo Success↔Failure. Running giữ nguyên.",
   Repeater:"Decorator (1 con): lặp con count lần (-1 = vô hạn).",
@@ -314,7 +343,7 @@ const DESC = {
   Do:"Leaf registry: chạy hàm rồi luôn Success. ref = id đăng ký.",
 };
 const PALETTE = [
-  ["Composite",["Selector","Sequence","Parallel"]],
+  ["Composite",["Selector","Sequence","ReactiveSelector","ReactiveSequence","Parallel"]],
   ["Decorator",["Inverter","Repeater","Cooldown","UntilSuccess","UntilFailure"]],
   ["Leaf",["Wait","Succeed","Fail"]],
   ["Registry",["Action","Condition","Do"]],
@@ -322,8 +351,9 @@ const PALETTE = [
 const LS_KEY="uyibt.autosave.v1", LS_CAT="uyibt.catalog.v1";
 
 let state = { treeName:"GruntAI", nodes:{}, edges:[] };   // edges: {from:parentId, to:childId}
-let selId=null, counter=0;
+let sel=new Set(), primary=null, counter=0;               // sel: nhiều node; primary: node cho inspector
 let view={x:60,y:80,z:1};
+let clip=null;                                            // clipboard copy/paste (nodes+edges nội bộ)
 
 /* ============================ DOM refs ============================ */
 const world=document.getElementById("world"), wireLayer=document.getElementById("wireLayer"),
@@ -349,13 +379,13 @@ function addNode(type,x,y){
   const id=uid();
   const preset=(TYPES[type].params||[]).map(([k,v])=>({key:k,value:v}));
   state.nodes[id]={id,type,ref:"",name:"",params:preset,x:Math.round(x),y:Math.round(y)};
-  render(); select(id); save(); return id;
+  render(); select(id); commit(); return id;
 }
 function removeNode(id){
   delete state.nodes[id];
   state.edges=state.edges.filter(e=>e.from!==id&&e.to!==id);
-  if(selId===id)selId=null;
-  render(); renderInspector(); save();
+  sel.delete(id); if(primary===id)primary=null;
+  render(); renderInspector(); commit();
 }
 function connect(from,to){
   if(from===to)return toast("Không nối vào chính nó");
@@ -364,7 +394,7 @@ function connect(from,to){
   if(childrenOf(from).length>=TYPES[state.nodes[from].type].kids)return toast("Decorator chỉ 1 con");
   state.edges=state.edges.filter(e=>e.to!==to);      // single parent → reparent
   state.edges.push({from,to});
-  render(); save();
+  render(); commit();
 }
 
 /* ============================ Render ============================ */
@@ -382,7 +412,7 @@ function render(){
   for(const id in state.nodes){
     const n=state.nodes[id], t=TYPES[n.type];
     const el=document.createElement("div");
-    el.className=`node cat-${t.cat}`+(id===selId?" sel":"")+(rootSet.has(id)&&rootSet.size===1?" isroot":"");
+    el.className=`node cat-${t.cat}`+(sel.has(id)?" sel":"")+(rootSet.has(id)&&rootSet.size===1?" isroot":"");
     el.style.left=n.x+"px"; el.style.top=n.y+"px"; el.dataset.id=id; el.title=DESC[n.type]||n.type;
     const pmSummary=n.params.filter(p=>p.key).map(p=>`${p.key}=${p.value}`).join("  ");
     el.innerHTML=`
@@ -400,6 +430,7 @@ function render(){
   }
   renderWires();
   renderExplain();
+  updateMinimap();
 }
 function nodeSize(id){ const el=world.querySelector(`.node[data-id="${id}"]`); return el?{w:el.offsetWidth,h:el.offsetHeight}:{w:172,h:60}; }
 function renderWires(){
@@ -418,7 +449,7 @@ function wirePath(x1,y1,x2,y2,edge){
   const hit=mkPath(d,"hit"), vis=mkPath(d,"");
   if(edge){ hit.style.pointerEvents="stroke";
     hit.addEventListener("click",ev=>{ev.stopPropagation();
-      state.edges=state.edges.filter(x=>x!==edge); render(); save(); toast("Đã xoá wire");}); }
+      state.edges=state.edges.filter(x=>x!==edge); render(); commit(); toast("Đã xoá wire");}); }
   g.appendChild(hit); g.appendChild(vis); return g;
 }
 const mkPath=(d,cls)=>{ const p=document.createElementNS("http://www.w3.org/2000/svg","path");
@@ -426,20 +457,38 @@ const mkPath=(d,cls)=>{ const p=document.createElementNS("http://www.w3.org/2000
 const esc=s=>String(s).replace(/[<>&]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
 
 /* ============================ Inspector ============================ */
-function select(id){ selId=id; render(); renderInspector(); }
+function select(id, additive=false){
+  if(id===null){ sel.clear(); primary=null; }
+  else if(additive){ if(sel.has(id))sel.delete(id); else sel.add(id);
+    primary = sel.has(id)? id : (sel.size? [...sel][sel.size-1] : null); }
+  else { sel.clear(); sel.add(id); primary=id; }
+  render(); renderInspector();
+}
 function renderInspector(){
   const cat=getCatalog();
-  if(!selId||!state.nodes[selId]){
+  if(sel.size>1){
+    inspector.innerHTML=`<h3>${sel.size} node đang chọn</h3>
+      <div class="hint">Kéo 1 node để di chuyển cả nhóm · <span class="kbd">Ctrl</span>+<span class="kbd">D</span> nhân bản · <span class="kbd">Del</span> xoá.</div>
+      <div style="margin-top:12px" class="row2">
+        <button id="mDup">Nhân bản</button>
+        <button id="mDel">Xoá nhóm</button>
+      </div>`;
+    document.getElementById("mDup").addEventListener("click",duplicateSelection);
+    document.getElementById("mDel").addEventListener("click",deleteSelection);
+    return;
+  }
+  const id = sel.size===1 ? [...sel][0] : null;
+  if(!id||!state.nodes[id]){
     inspector.innerHTML=`<h3>Cây</h3>${validityHTML()}
       <label>Registry catalog (refs gợi ý)</label>
       <div class="hint">Mỗi id 1 dòng. Dùng cho ô ref của Action/Condition/Do.</div>
       <textarea id="catBox" style="min-height:90px;margin-top:6px">${esc(cat.join("\n"))}</textarea>
       <div style="margin-top:14px" class="hint">
         <b>Thao tác</b><br>
-        • Kéo nền = pan · lăn chuột = zoom<br>
-        • Kéo chấm <span style="color:var(--accent)">dưới</span> node → thả lên node khác = nối cha-con<br>
-        • Click wire = xoá · <span class="kbd">Del</span> = xoá node đang chọn<br>
-        • Thứ tự con = trái→phải theo vị trí X
+        • Kéo nền = chọn vùng (marquee) · <span class="kbd">Space</span>/chuột giữa + kéo = pan · lăn = zoom<br>
+        • Kéo chấm <span style="color:var(--accent)">dưới</span> node → node khác = nối; → chỗ trống = menu tạo<br>
+        • <span class="kbd">Shift</span>/<span class="kbd">Ctrl</span>+click = chọn thêm · chuột phải = menu<br>
+        • <span class="kbd">Ctrl</span>+<span class="kbd">Z</span>/<span class="kbd">Y</span> = undo/redo · Click wire = xoá
       </div>`;
     document.getElementById("catBox").addEventListener("change",e=>{
       localStorage.setItem(LS_CAT,JSON.stringify(e.target.value.split("\n").map(s=>s.trim()).filter(Boolean)));
@@ -447,7 +496,7 @@ function renderInspector(){
     });
     return;
   }
-  const n=state.nodes[selId], t=TYPES[n.type];
+  const n=state.nodes[id], t=TYPES[n.type];
   let h=`<h3>Node · <span style="font-family:var(--mono);color:var(--ink)">${n.id}</span></h3>
     <div class="hint" style="margin:-2px 0 9px;line-height:1.45">${esc(DESC[n.type]||"")}</div>
     <label>Type</label><select id="fType">${
@@ -468,16 +517,16 @@ function renderInspector(){
   document.getElementById("fType").addEventListener("change",e=>{
     n.type=e.target.value; if(TYPES[n.type].kids===0){ state.edges=state.edges.filter(x=>x.from!==n.id); }
     if(!TYPES[n.type].ref)n.ref="";
-    render(); renderInspector(); save();
+    render(); renderInspector(); commit();
   });
   document.getElementById("fName").addEventListener("input",e=>{n.name=e.target.value;renderNode(n.id);save();});
   const refEl=document.getElementById("fRef");
   if(refEl)refEl.addEventListener("input",e=>{n.ref=e.target.value;renderNode(n.id);save();});
   renderParams(n);
-  document.getElementById("pmAdd").addEventListener("click",()=>{n.params.push({key:"",value:""});renderParams(n);save();});
+  document.getElementById("pmAdd").addEventListener("click",()=>{n.params.push({key:"",value:""});renderParams(n);commit();});
   inspector.querySelectorAll(".chip").forEach(c=>c.addEventListener("click",()=>{
     const k=c.dataset.k; if(!n.params.some(p=>p.key===k)){const def=(t.params||[]).find(p=>p[0]===k);
-      n.params.push({key:k,value:def?def[1]:""});renderParams(n);renderNode(n.id);save();}}));
+      n.params.push({key:k,value:def?def[1]:""});renderParams(n);renderNode(n.id);commit();}}));
   document.getElementById("btnDel").addEventListener("click",()=>removeNode(n.id));
 }
 function renderParams(n){
@@ -488,7 +537,7 @@ function renderParams(n){
     const [k,v,del]=row.children;
     k.addEventListener("input",e=>{p.key=e.target.value;renderNode(n.id);save();});
     v.addEventListener("input",e=>{p.value=e.target.value;renderNode(n.id);save();});
-    del.addEventListener("click",()=>{n.params.splice(i,1);renderParams(n);renderNode(n.id);save();});
+    del.addEventListener("click",()=>{n.params.splice(i,1);renderParams(n);renderNode(n.id);commit();});
     box.appendChild(row);
   });
 }
@@ -545,7 +594,7 @@ function loadJSON(obj){
     const m=/^n(\d+)$/.exec(nd.id); if(m)max=Math.max(max,+m[1]);
   }
   for(const nd of obj.nodes){ (nd.children||[]).forEach(c=>{ if(state.nodes[c])state.edges.push({from:nd.id,to:c}); }); }
-  counter=max+1; selId=null;
+  counter=max+1; sel=new Set(); primary=null;
   treeNameEl.value=state.treeName;
   render(); renderInspector(); save();
 }
@@ -580,8 +629,8 @@ document.getElementById("fileInput").addEventListener("change",e=>{
 });
 document.getElementById("btnNew").addEventListener("click",()=>{
   if(Object.keys(state.nodes).length&&!confirm("Xoá hết cây hiện tại?"))return;
-  state={treeName:treeNameEl.value||"BehaviorTree",nodes:{},edges:[]}; selId=null; counter=0;
-  render(); renderInspector(); save();
+  state={treeName:treeNameEl.value||"BehaviorTree",nodes:{},edges:[]}; sel=new Set(); primary=null; counter=0;
+  render(); renderInspector(); commit();
 });
 document.getElementById("modalClose").addEventListener("click",closeModal);
 document.getElementById("modal").addEventListener("click",e=>{if(e.target.id==="modal")closeModal();});
@@ -643,34 +692,52 @@ function chooseNode(type){ if(!pendingConn)return; const {from,wx,wy}=pendingCon
   const id=addNode(type,Math.round(wx-86),Math.round(wy)); connect(from,id); closeNodeMenu(); }
 
 /* ============================ Interaction: pan/zoom/drag/connect ============================ */
-let drag=null; // {mode, id, offx, offy} or pan or wire
+let drag=null, spaceDown=false; const marqueeEl=document.getElementById("marquee");
 viewport.addEventListener("pointerdown",e=>{
+  if(e.button===2)return;                       // chuột phải → contextmenu
+  const wantPan = e.button===1 || spaceDown;    // chuột giữa hoặc giữ Space = pan
   const portOut=e.target.closest(".port.out");
   const nodeEl=e.target.closest(".node");
+
+  if(wantPan){ // pan (kể cả khi trỏ trên node)
+    drag={mode:"pan",sx:e.clientX,sy:e.clientY,ox:view.x,oy:view.y};
+    viewport.classList.add("panning"); viewport.setPointerCapture(e.pointerId); e.preventDefault(); return;
+  }
   if(portOut&&nodeEl){ // start wire
     drag={mode:"wire",from:nodeEl.dataset.id};
     drag.tmp=mkPath("","temp"); wireLayer.appendChild(drag.tmp);
     viewport.setPointerCapture(e.pointerId); e.preventDefault(); return;
   }
-  if(nodeEl){ // move node (grab on head or body)
-    const id=nodeEl.dataset.id; select(id);
-    const n=state.nodes[id]; const w=screenToWorld(e.clientX,e.clientY);
-    drag={mode:"node",id,offx:w.x-n.x,offy:w.y-n.y};
+  if(nodeEl){ // chọn + chuẩn bị di chuyển (cả nhóm nếu đang chọn nhiều)
+    const id=nodeEl.dataset.id;
+    const additive=e.shiftKey||e.ctrlKey||e.metaKey;
+    if(additive) select(id,true);
+    else if(!sel.has(id)) select(id,false);
+    else { primary=id; renderInspector(); }   // đã trong nhóm → giữ nguyên để kéo nhóm
+    const w=screenToWorld(e.clientX,e.clientY);
+    drag={mode:"node",id,startW:w,moved:false,
+      group:[...sel].map(sid=>({id:sid,x:state.nodes[sid].x,y:state.nodes[sid].y}))};
     viewport.setPointerCapture(e.pointerId); return;
   }
-  // pan
-  drag={mode:"pan",sx:e.clientX,sy:e.clientY,ox:view.x,oy:view.y};
-  viewport.classList.add("panning"); viewport.setPointerCapture(e.pointerId);
-  if(e.target===viewport||e.target===world){ select(null); }
+  // nền + chuột trái = khoanh vùng chọn (marquee). Shift/Ctrl = cộng dồn.
+  if(!(e.shiftKey||e.ctrlKey||e.metaKey)) select(null);
+  drag={mode:"marquee",sx:e.clientX,sy:e.clientY};
+  marqueeEl.style.display="block"; updateMarquee(e.clientX,e.clientY);
+  viewport.setPointerCapture(e.pointerId);
 });
 viewport.addEventListener("pointermove",e=>{
   if(!drag)return;
   if(drag.mode==="pan"){ view.x=drag.ox+(e.clientX-drag.sx); view.y=drag.oy+(e.clientY-drag.sy);
-    applyTransform(); renderWires(); return; }
+    applyTransform(); renderWires(); updateMinimap(); return; }
   if(drag.mode==="node"){ const w=screenToWorld(e.clientX,e.clientY);
-    const n=state.nodes[drag.id]; n.x=Math.round(w.x-drag.offx); n.y=Math.round(w.y-drag.offy);
-    const el=world.querySelector(`.node[data-id="${drag.id}"]`); el.style.left=n.x+"px"; el.style.top=n.y+"px";
-    renderWires(); return; }
+    const dx=w.x-drag.startW.x, dy=w.y-drag.startW.y;
+    if(Math.abs(dx)>0.5||Math.abs(dy)>0.5)drag.moved=true;
+    for(const g of drag.group){ const nd=state.nodes[g.id]; if(!nd)continue;
+      nd.x=Math.round(g.x+dx); nd.y=Math.round(g.y+dy);
+      const el=world.querySelector(`.node[data-id="${g.id}"]`); if(el){el.style.left=nd.x+"px";el.style.top=nd.y+"px";}
+    }
+    renderWires(); updateMinimap(); return; }
+  if(drag.mode==="marquee"){ updateMarquee(e.clientX,e.clientY); return; }
   if(drag.mode==="wire"){ const P=state.nodes[drag.from]; const ps=nodeSize(drag.from);
     const w=screenToWorld(e.clientX,e.clientY);
     drag.tmp.setAttribute("d",`M ${P.x+ps.w/2} ${P.y+ps.h} L ${w.x} ${w.y}`); return; }
@@ -686,26 +753,48 @@ viewport.addEventListener("pointerup",e=>{
       else { const w=screenToWorld(e.clientX,e.clientY); openNodeMenu(e.clientX,e.clientY,from,w.x,w.y); }
     }
   }
-  if(drag.mode==="node")save();
+  else if(drag.mode==="node"){ if(drag.moved)commit(); }
+  else if(drag.mode==="marquee"){ marqueeEl.style.display="none"; marqueePick(drag.sx,drag.sy,e.clientX,e.clientY); }
   viewport.classList.remove("panning"); drag=null;
 });
+function updateMarquee(cx,cy){ const r=viewport.getBoundingClientRect();
+  marqueeEl.style.left=(Math.min(drag.sx,cx)-r.left)+"px"; marqueeEl.style.top=(Math.min(drag.sy,cy)-r.top)+"px";
+  marqueeEl.style.width=Math.abs(cx-drag.sx)+"px"; marqueeEl.style.height=Math.abs(cy-drag.sy)+"px"; }
+function marqueePick(x1,y1,x2,y2){
+  const a=screenToWorld(Math.min(x1,x2),Math.min(y1,y2)), b=screenToWorld(Math.max(x1,x2),Math.max(y1,y2));
+  for(const id in state.nodes){ const n=state.nodes[id], s=nodeSize(id);
+    const cx=n.x+s.w/2, cy=n.y+s.h/2;
+    if(cx>=a.x&&cx<=b.x&&cy>=a.y&&cy<=b.y) sel.add(id); }
+  primary = sel.size? [...sel][sel.size-1] : null;
+  render(); renderInspector();
+}
 viewport.addEventListener("wheel",e=>{
   e.preventDefault(); const r=viewport.getBoundingClientRect();
   const mx=e.clientX-r.left, my=e.clientY-r.top;
   const wx=(mx-view.x)/view.z, wy=(my-view.y)/view.z;
   view.z=Math.min(2,Math.max(.3,view.z*(e.deltaY<0?1.1:0.9)));
   view.x=mx-wx*view.z; view.y=my-wy*view.z;
-  applyTransform(); renderWires();
+  applyTransform(); renderWires(); updateMinimap();
 },{passive:false});
 function screenToWorld(cx,cy){ const r=viewport.getBoundingClientRect();
   return { x:(cx-r.left-view.x)/view.z, y:(cy-r.top-view.y)/view.z }; }
 
 document.addEventListener("keydown",e=>{
-  if((e.key==="Delete"||e.key==="Backspace")&&selId&&document.activeElement.tagName!=="INPUT"&&document.activeElement.tagName!=="TEXTAREA"){
-    removeNode(selId); e.preventDefault();
-  }
+  const typing=document.activeElement&&(document.activeElement.tagName==="INPUT"||document.activeElement.tagName==="TEXTAREA");
+  if(typing)return;
+  if(e.code==="Space"){ if(!spaceDown){ spaceDown=true; viewport.style.cursor="grab"; } e.preventDefault(); return; }
+  const mod=e.ctrlKey||e.metaKey;
+  if((e.key==="Delete"||e.key==="Backspace")&&sel.size){ deleteSelection(); e.preventDefault(); }
+  else if(mod&&e.key.toLowerCase()==="z"){ e.preventDefault(); e.shiftKey?redo():undo(); }
+  else if(mod&&e.key.toLowerCase()==="y"){ e.preventDefault(); redo(); }
+  else if(mod&&e.key.toLowerCase()==="d"){ e.preventDefault(); duplicateSelection(); }
+  else if(mod&&e.key.toLowerCase()==="c"){ copySelection(); }
+  else if(mod&&e.key.toLowerCase()==="v"){ pasteClipboard(); }
+  else if(mod&&e.key.toLowerCase()==="a"){ e.preventDefault(); selectAll(); }
 });
+document.addEventListener("keyup",e=>{ if(e.code==="Space"){ spaceDown=false; if(drag?.mode!=="pan")viewport.style.cursor=""; } });
 treeNameEl.addEventListener("input",save);
+inspector.addEventListener("change",()=>pushHistory());   // undo cho sửa text (name/ref/param) khi blur
 
 /* drag-drop a .btjson onto the canvas */
 viewport.addEventListener("dragover",e=>{e.preventDefault();viewport.classList.add("dragover");});
@@ -725,16 +814,18 @@ function actLabel(n){ return n.name? esc(n.name) : esc(pretty(n.ref||"?")); }
 function gp(n,k,d){ const p=n.params.find(p=>p.key===k); return p? p.value : d; }
 function isGuarded(id){ const n=state.nodes[id]; if(!n)return false;
   if(n.type==="Condition")return true;
-  if(n.type==="Sequence"){ const k=orderedChildren(id); return k.length>0 && state.nodes[k[0]] && state.nodes[k[0]].type==="Condition"; }
+  if(n.type==="Sequence"||n.type==="ReactiveSequence"){ const k=orderedChildren(id); return k.length>0 && state.nodes[k[0]] && state.nodes[k[0]].type==="Condition"; }
   return false; }
 
 function narr(id){
   const n=state.nodes[id]; if(!n)return `<span class="nx-def">(thiếu node)</span>`;
   const k=orderedChildren(id);
   switch(n.type){
+    case "ReactiveSelector":
     case "Selector":
-      return `<div class="nx-sel">Ưu tiên lần lượt — chạy nhánh đầu tiên khả thi:</div>`+
+      return `<div class="nx-sel">Ưu tiên lần lượt${n.type==="ReactiveSelector"?" (phản ứng — cắt ngang được)":""} — chạy nhánh đầu tiên khả thi:</div>`+
              `<ol class="nx-list">`+k.map(c=>`<li>${narr(c)}</li>`).join("")+`</ol>`;
+    case "ReactiveSequence":
     case "Sequence": {
       let i=0; const guards=[];
       while(i<k.length && state.nodes[k[i]] && state.nodes[k[i]].type==="Condition"){ guards.push(k[i]); i++; }
@@ -775,7 +866,7 @@ function renderExplain(){
   let html="";
   for(const r of rs){
     const n=state.nodes[r];
-    if(n.type==="Selector"){
+    if(n.type==="Selector"||n.type==="ReactiveSelector"){
       const k=orderedChildren(r);
       html+=`<div class="nx-intro">Cây <b>${esc(treeNameEl.value||"này")}</b>: hành vi chia <b>${k.length} cấp ưu tiên</b>, xét từ trên xuống — gặp nhánh nào chạy được thì làm nhánh đó, xong thôi.</div>`;
       k.forEach((c,i)=>{
@@ -798,6 +889,130 @@ document.getElementById("btnCopyExplain").addEventListener("click",async()=>{
   catch{ toast("Không copy được"); }
 });
 treeNameEl.addEventListener("input",renderExplain);
+treeNameEl.addEventListener("change",()=>pushHistory());
+
+/* ============================ History (undo/redo) ============================ */
+let _hist=[], _histIdx=-1, _histLock=false;
+function snapshot(){ return JSON.stringify({treeName:treeNameEl.value,nodes:state.nodes,edges:state.edges,counter,sel:[...sel]}); }
+function restore(json){ const s=JSON.parse(json);
+  state.treeName=s.treeName; treeNameEl.value=s.treeName||"";
+  state.nodes=s.nodes||{}; state.edges=s.edges||[]; counter=s.counter||0;
+  sel=new Set(s.sel||[]); primary=sel.size?[...sel][sel.size-1]:null;
+  _histLock=true; render(); renderInspector(); save(); _histLock=false; }
+function pushHistory(){ if(_histLock)return; const snap=snapshot();
+  if(_hist[_histIdx]===snap)return;
+  _hist=_hist.slice(0,_histIdx+1); _hist.push(snap); _histIdx=_hist.length-1;
+  if(_hist.length>120){ _hist.shift(); _histIdx--; } }
+function undo(){ if(_histIdx>0){ _histIdx--; restore(_hist[_histIdx]); toast("Undo"); } else toast("Hết undo"); }
+function redo(){ if(_histIdx<_hist.length-1){ _histIdx++; restore(_hist[_histIdx]); toast("Redo"); } else toast("Hết redo"); }
+function commit(){ save(); pushHistory(); }
+
+/* ============================ Clipboard / multi-op ============================ */
+function selectAll(){ sel=new Set(Object.keys(state.nodes)); primary=sel.size?[...sel][sel.size-1]:null; render(); renderInspector(); }
+function copySelection(){ if(!sel.size)return;
+  const ids=[...sel], idset=new Set(ids);
+  clip={ nodes:ids.map(id=>JSON.parse(JSON.stringify(state.nodes[id]))),
+         edges:state.edges.filter(e=>idset.has(e.from)&&idset.has(e.to)).map(e=>({from:e.from,to:e.to})) };
+  toast(ids.length+" node đã copy"); }
+function cloneInto(c,ox,oy){ if(!c||!c.nodes.length)return;
+  const map={}, newIds=[];
+  c.nodes.forEach(n=>{ const nid=uid(); map[n.id]=nid; newIds.push(nid);
+    const cp=JSON.parse(JSON.stringify(n)); cp.id=nid; cp.x=Math.round(n.x+ox); cp.y=Math.round(n.y+oy);
+    state.nodes[nid]=cp; });
+  c.edges.forEach(e=>{ if(map[e.from]&&map[e.to]) state.edges.push({from:map[e.from],to:map[e.to]}); });
+  sel=new Set(newIds); primary=newIds[newIds.length-1];
+  render(); renderInspector(); commit(); }
+function duplicateSelection(){ if(!sel.size)return;
+  const ids=[...sel], idset=new Set(ids);
+  cloneInto({ nodes:ids.map(id=>JSON.parse(JSON.stringify(state.nodes[id]))),
+              edges:state.edges.filter(e=>idset.has(e.from)&&idset.has(e.to)).map(e=>({from:e.from,to:e.to})) },30,30);
+  toast(ids.length+" node đã nhân bản"); }
+function pasteClipboard(worldPos){ if(!clip){toast("Chưa có gì để dán");return;}
+  let ox=30,oy=30;
+  if(worldPos&&clip.nodes.length){ ox=worldPos.x-clip.nodes[0].x; oy=worldPos.y-clip.nodes[0].y; }
+  cloneInto(clip,ox,oy); toast("Đã dán"); }
+function deleteSelection(){ if(!sel.size)return;
+  const idset=new Set(sel);
+  for(const id of idset) delete state.nodes[id];
+  state.edges=state.edges.filter(e=>!idset.has(e.from)&&!idset.has(e.to));
+  sel.clear(); primary=null;
+  render(); renderInspector(); commit(); }
+
+/* ============================ Context menu (chuột phải) ============================ */
+function openCtxMenu(x,y,items){ const m=document.getElementById("ctxMenu"); m.innerHTML="";
+  items.forEach(it=>{ if(it.sep){ const s=document.createElement("div"); s.className="sepline"; m.appendChild(s); return; }
+    const d=document.createElement("div"); d.className="mi"+(it.danger?" danger":"")+(it.disabled?" disabled":"");
+    d.innerHTML=`<span>${it.label}</span>`+(it.key?`<span class="k">${it.key}</span>`:"");
+    if(!it.disabled) d.addEventListener("click",()=>{ closeCtxMenu(); it.fn&&it.fn(); });
+    m.appendChild(d); });
+  m.classList.add("show");
+  const mw=m.offsetWidth||160, mh=m.offsetHeight||120;
+  m.style.left=Math.max(6,Math.min(x,innerWidth-mw-8))+"px";
+  m.style.top=Math.max(6,Math.min(y,innerHeight-mh-8))+"px";
+  setTimeout(()=>document.addEventListener("pointerdown",ctxOutside,true),0);
+  document.addEventListener("keydown",ctxEsc); }
+function closeCtxMenu(){ document.getElementById("ctxMenu").classList.remove("show");
+  document.removeEventListener("pointerdown",ctxOutside,true); document.removeEventListener("keydown",ctxEsc); }
+function ctxOutside(e){ if(!e.target.closest("#ctxMenu"))closeCtxMenu(); }
+function ctxEsc(e){ if(e.key==="Escape")closeCtxMenu(); }
+viewport.addEventListener("contextmenu",e=>{
+  e.preventDefault();
+  const nodeEl=e.target.closest(".node");
+  if(nodeEl){ const id=nodeEl.dataset.id; if(!sel.has(id)) select(id,false);
+    openCtxMenu(e.clientX,e.clientY,[
+      {label:"Nhân bản",key:"Ctrl+D",fn:duplicateSelection},
+      {label:"Copy",key:"Ctrl+C",fn:copySelection},
+      {sep:true},
+      {label:"Xoá",key:"Del",danger:true,fn:deleteSelection},
+    ]);
+  } else {
+    const w=screenToWorld(e.clientX,e.clientY);
+    openCtxMenu(e.clientX,e.clientY,[
+      {label:"Dán",key:"Ctrl+V",disabled:!clip,fn:()=>pasteClipboard(w)},
+      {label:"Chọn tất cả",key:"Ctrl+A",fn:selectAll},
+    ]);
+  }
+});
+
+/* ============================ Minimap ============================ */
+const CATHEX={composite:"#4c86e0",decorator:"#a97be0",leaf:"#6b7688",action:"#2fbf9b",condition:"#e0b341",do:"#3fb6d8"};
+function catColor(type){ const t=TYPES[type]; return (t&&CATHEX[t.cat])||"#888"; }
+function updateMinimap(){
+  const cv=document.getElementById("mmCanvas"); if(!cv)return;
+  const ctx=cv.getContext("2d"); const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H);
+  const ids=Object.keys(state.nodes);
+  const r=viewport.getBoundingClientRect();
+  const vx0=-view.x/view.z, vy0=-view.y/view.z, vw=r.width/view.z, vh=r.height/view.z;
+  let minX=vx0,minY=vy0,maxX=vx0+vw,maxY=vy0+vh;
+  for(const id of ids){ const n=state.nodes[id], s=nodeSize(id);
+    minX=Math.min(minX,n.x); minY=Math.min(minY,n.y); maxX=Math.max(maxX,n.x+s.w); maxY=Math.max(maxY,n.y+s.h); }
+  const pad=60; minX-=pad;minY-=pad;maxX+=pad;maxY+=pad;
+  const cw=Math.max(1,maxX-minX), ch=Math.max(1,maxY-minY);
+  const scale=Math.min(W/cw,H/ch);
+  const offX=(W-cw*scale)/2, offY=(H-ch*scale)/2;
+  const tx=x=>(x-minX)*scale+offX, ty=y=>(y-minY)*scale+offY;
+  ctx.strokeStyle="rgba(120,140,170,.45)"; ctx.lineWidth=1;
+  for(const e of state.edges){ const P=state.nodes[e.from],C=state.nodes[e.to]; if(!P||!C)continue;
+    const ps=nodeSize(e.from), cs=nodeSize(e.to);
+    ctx.beginPath(); ctx.moveTo(tx(P.x+ps.w/2),ty(P.y+ps.h)); ctx.lineTo(tx(C.x+cs.w/2),ty(C.y)); ctx.stroke(); }
+  for(const id of ids){ const n=state.nodes[id], s=nodeSize(id);
+    ctx.fillStyle= sel.has(id)? "#2dd4bf" : catColor(n.type);
+    ctx.fillRect(tx(n.x),ty(n.y),Math.max(2,s.w*scale),Math.max(2,s.h*scale)); }
+  ctx.strokeStyle="rgba(231,236,243,.9)"; ctx.lineWidth=1.5;
+  ctx.strokeRect(tx(vx0),ty(vy0),vw*scale,vh*scale);
+  cv._mm={minX,minY,scale,offX,offY};
+}
+function centerOn(wx,wy){ const r=viewport.getBoundingClientRect();
+  view.x=r.width/2-wx*view.z; view.y=r.height/2-wy*view.z; applyTransform(); renderWires(); updateMinimap(); }
+function bindMinimap(){
+  const cv=document.getElementById("mmCanvas"); if(!cv)return; let down=false;
+  const toWorld=ev=>{ const t=cv._mm; if(!t)return null; const rect=cv.getBoundingClientRect();
+    return { x:(ev.clientX-rect.left-t.offX)/t.scale+t.minX, y:(ev.clientY-rect.top-t.offY)/t.scale+t.minY }; };
+  const go=ev=>{ const w=toWorld(ev); if(w)centerOn(w.x,w.y); };
+  cv.addEventListener("pointerdown",ev=>{ ev.stopPropagation(); down=true; cv.setPointerCapture(ev.pointerId); go(ev); });
+  cv.addEventListener("pointermove",ev=>{ if(down){ ev.stopPropagation(); go(ev); } });
+  cv.addEventListener("pointerup",()=>{ down=false; });
+}
 
 /* ============================ Boot ============================ */
 function seed(){
@@ -820,6 +1035,8 @@ function seed(){
 if(!load())seed();
 buildNodeMenu();
 render(); renderInspector();
+bindMinimap();
+pushHistory();   // baseline cho undo
 </script>
 </body>
 </html>
